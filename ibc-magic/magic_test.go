@@ -7,8 +7,6 @@ import (
 	mocks "github.com/plural/sonic-relayer/testing/mocks"
 )
 
-var test = mocks.Base64EncodedTxs
-
 type MagicTestSuite struct {
 	suite.Suite
 }
