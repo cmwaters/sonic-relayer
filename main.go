@@ -1,7 +1,14 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+
+	magic "github.com/plural/sonic-relayer/ibc-magic"
+	mocks "github.com/plural/sonic-relayer/testing/mocks"
+)
 
 func main() {
-	fmt.Println("Sonic Boom")
+	mockTxs := mocks.Base64EncodedTxs
+	decodedTx, _ := magic.IBCMagic(mockTxs)
+	fmt.Println(decodedTx)
 }

@@ -1,11 +1,23 @@
 package magic_test
 
 import (
-	"fmt"
-	"testing"
+	"github.com/stretchr/testify/suite"
+
+	magic "github.com/plural/sonic-relayer/ibc-magic"
+	mocks "github.com/plural/sonic-relayer/testing/mocks"
 )
 
-func TestIBCMagic(t *testing.T) {
+var test = mocks.Base64EncodedTxs
+
+type MagicTestSuite struct {
+	suite.Suite
+}
+
+func (suite *MagicTestSuite) TestIBCMagic() {
+	var (
+		mockTxs []string
+	)
+
 	testCases := []struct {
 		name     string
 		malleate func()
@@ -13,13 +25,32 @@ func TestIBCMagic(t *testing.T) {
 	}{
 		{
 			"success",
+			func() {},
+			true,
+		},
+		{
+			"error decoding txs",
 			func() {
+				mockTxs = []string{"1"}
 			},
 			true,
 		},
 	}
 
 	for _, tc := range testCases {
-		fmt.Println(tc.name)
+		tc := tc
+
+		suite.Run(tc.name, func() {
+			mockTxs = mocks.Base64EncodedTxs
+
+			tc.malleate()
+			_, err := magic.IBCMagic(mockTxs)
+
+			if tc.expPass {
+				suite.Require().NoError(err)
+			} else {
+				suite.Require().Error(err)
+			}
+		})
 	}
 }
