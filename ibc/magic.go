@@ -1,4 +1,4 @@
-package magic
+package ibc
 
 import (
 	b64 "encoding/base64"

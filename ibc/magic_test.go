@@ -1,9 +1,9 @@
-package magic_test
+package ibc_test
 
 import (
 	"github.com/stretchr/testify/suite"
 
-	magic "github.com/plural/sonic-relayer/ibc-magic"
+	magic "github.com/plural/sonic-relayer/ibc"
 	mocks "github.com/plural/sonic-relayer/testing/mocks"
 )
 
