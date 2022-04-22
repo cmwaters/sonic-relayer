@@ -36,7 +36,7 @@ type Handler struct {
 	// The handler stores all of them indexed based on the
 	// string encoding of the block's hash. When one of these
 	// is eventually committed
-	pendingTxs map[string]TxSet 
+	pendingTxs map[string]TxSet
 
 	// TxRouter wraps multiple mempools allowing for each hander
 	// to fire completed transactions across to other chains
@@ -45,7 +45,7 @@ type Handler struct {
 	// Each handler has write access to the IBC state of the chain
 	// it is receiving blocks on and read access to all the IBC
 	// states of counterparty chains.
-	ibcState State
+	ibcState           State
 	counterpartyStates map[string]StateReader
 }
 
@@ -83,7 +83,7 @@ func (h Handler) Process(block tm.Block) error {
 			}
 
 			msg := &channel.MsgRecvPacket{
-				Packet: packet,
+				Packet:          packet,
 				ProofCommitment: proofCommitment,
 				ProofHeight: v3client.Height{
 					RevisionNumber: h.revisionNumber,
@@ -106,7 +106,7 @@ func (h Handler) Process(block tm.Block) error {
 		}
 	}
 	h.pendingTxs[string(proofCommitment)] = outboundTxs
-	return nil	
+	return nil
 }
 
 // Commit is called the moment a block is committed. The handler will
@@ -114,7 +114,7 @@ func (h Handler) Process(block tm.Block) error {
 // proof for that height, bundle this into a sdk transaction, sign it
 // marshal it into bytes and deliver it to the router to be submitted
 // on the destination chain. It will then make any updates to the handlers
-// own state if necessary. This should never error. 
+// own state if necessary. This should never error.
 func (h *Handler) Commit(blockID []byte, commit *tmproto.SignedHeader, valSet *tmproto.ValidatorSet) {
 	outboundTxs, ok := h.pendingTxs[string(blockID)]
 	if !ok {
@@ -122,9 +122,9 @@ func (h *Handler) Commit(blockID []byte, commit *tmproto.SignedHeader, valSet *t
 	}
 
 	header := &ibcclient.Header{
-		SignedHeader: commit,
-		ValidatorSet: valSet,
-		TrustedHeight: h.ibcState.TrustedHeight,
+		SignedHeader:      commit,
+		ValidatorSet:      valSet,
+		TrustedHeight:     h.ibcState.TrustedHeight,
 		TrustedValidators: h.ibcState.TrustedValidators,
 	}
 
@@ -173,9 +173,9 @@ func (h Handler) BroadcastPackets(header *ibcclient.Header, chainID string, tx s
 	return h.txRouter.Send(chainID, []tm.Tx{completedTx})
 }
 
-// TODO: When processing a block we should cache the transactions that will update 
+// TODO: When processing a block we should cache the transactions that will update
 // the part of the ibc state that is important for the relayer to function. When
-// this function is called we should then commit the cached state. 
+// this function is called we should then commit the cached state.
 func (h *Handler) UpdateIBCState(blockID []byte) {
 
 }

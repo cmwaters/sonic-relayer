@@ -12,19 +12,17 @@ type StateReader interface {
 
 // State represents a reduced version of an IBC module
 // of a specific chain. It contains the neessary fields
-// for successfully relaying packets 
+// for successfully relaying packets
 type State struct {
 	// clientID is the id of the chains IBC client that is used
-	// to update the client 
-	ClientID string 
+	// to update the client
+	ClientID string
 
 	// trusted fields used to update the client
-	TrustedHeight client.Height
+	TrustedHeight     client.Height
 	TrustedValidators *tmproto.ValidatorSet
 }
 
 func (s State) GetClientID() string {
 	return s.ClientID
 }
-
-
