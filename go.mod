@@ -7,6 +7,7 @@ require (
 	github.com/cosmos/ibc-go v1.4.0
 	github.com/cosmos/ibc-go/v3 v3.0.0
 	github.com/gogo/protobuf v1.3.3
+	github.com/rs/zerolog v1.23.0
 	github.com/stretchr/testify v1.7.1
 	github.com/tendermint/tendermint v0.34.19
 )

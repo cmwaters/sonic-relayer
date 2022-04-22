@@ -63,7 +63,7 @@ func NewHandler(signer keyring.Keyring) *Handler {
 // predicting the modules state transition if the block were to
 // be committed and producing the packets needed to be sent
 // to the respective chains
-func (h Handler) Process(block tm.Block) error {
+func (h Handler) Process(block *tm.Block) error {
 	outboundTxs := make(map[string]sdk.Tx)
 	proofCommitment := block.Hash().Bytes()
 	for _, rawTx := range block.Data.Txs {
