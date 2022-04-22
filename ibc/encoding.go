@@ -6,7 +6,7 @@ import (
 	"github.com/gogo/protobuf/proto"
 )
 
-func DecodeRawTx(txBytes []byte) ([]sdk.Msg, error) {
+func decodeRawTx(txBytes []byte) ([]sdk.Msg, error) {
 	var Tx tx.Tx
 	if err := proto.Unmarshal(txBytes, &Tx); err != nil {
 		return []sdk.Msg{}, err

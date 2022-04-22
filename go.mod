@@ -1,9 +1,10 @@
-module github.com/plural/sonic-relayer
+module github.com/plural-labs/sonic-relayer
 
 go 1.17
 
 require (
 	github.com/cosmos/cosmos-sdk v0.45.3
+	github.com/cosmos/ibc-go v1.4.0
 	github.com/cosmos/ibc-go/v3 v3.0.0
 	github.com/gogo/protobuf v1.3.3
 	github.com/stretchr/testify v1.7.1

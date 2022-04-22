@@ -3,8 +3,8 @@ package ibc_test
 import (
 	"github.com/stretchr/testify/suite"
 
-	magic "github.com/plural/sonic-relayer/ibc"
-	mocks "github.com/plural/sonic-relayer/testing/mocks"
+	magic "github.com/plural-labs/sonic-relayer/ibc"
+	mocks "github.com/plural-labs/sonic-relayer/testing/mocks"
 )
 
 type MagicTestSuite struct {
