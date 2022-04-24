@@ -1,9 +1,9 @@
 package main
 
 import (
-	"fmt"
+	"github.com/plural-labs/sonic-relayer/cmd"
 )
 
 func main() {
-	fmt.Println("Sonic Boom")
+	cmd.Execute()
 }

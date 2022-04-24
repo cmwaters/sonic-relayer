@@ -53,10 +53,8 @@ type Handler struct {
 // IDs of the chains they should be submitted on
 type TxSet map[string]sdk.Tx
 
-func NewHandler(signer keyring.Keyring) *Handler {
-	return &Handler{
-		signer: signer,
-	}
+func NewHandler() *Handler {
+	return &Handler{}
 }
 
 // Process takes a perspective block and scans for IBC messages,
