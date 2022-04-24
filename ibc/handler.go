@@ -28,10 +28,6 @@ type Handler struct {
 	// TODO: This could be abstracted out as a separate component
 	signer keyring.Keyring
 
-	// revisionNumber is used as part of the height in packets.
-	// It usually doesn't change unless a hard fork happens
-	revisionNumber uint64
-
 	// Multiple blocks can be proposed in any given height
 	// The handler stores all of them indexed based on the
 	// string encoding of the block's hash. When one of these
@@ -86,7 +82,7 @@ func (h Handler) Process(block *tm.Block) error {
 				Packet:          packet,
 				ProofCommitment: proofCommitment,
 				ProofHeight: v3client.Height{
-					RevisionNumber: h.revisionNumber,
+					RevisionNumber: h.ibcState.RevisionNumber,
 					RevisionHeight: uint64(block.Height),
 				},
 				Signer: "",
