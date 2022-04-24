@@ -6,7 +6,7 @@ import (
 	"github.com/plural-labs/sonic-relayer/router"
 )
 
-// Relay is the top level function taking a context and config and 
+// Relay is the top level function taking a context and config and
 // relaying packets across multiple chains
 func Relay(ctx context.Context, cfg *Config) error {
 	var err error
@@ -25,9 +25,8 @@ func Relay(ctx context.Context, cfg *Config) error {
 	// engines := make(map[string]*consensus.Service)
 	// for _, chain := range cfg.Chains {
 	// 	handler := ibc.NewHandler()
-	// 	engines[chain.ID] = consensus.NewService(chain.ID, 1, handler)	
+	// 	engines[chain.ID] = consensus.NewService(chain.ID, 1, handler)
 	// }
-
 
 	return nil
 }
