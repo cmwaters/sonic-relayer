@@ -35,7 +35,7 @@ func (m *Mempool) AddPeer(peer p2p.Peer) {
 func (m *Mempool) RemovePeer(peer p2p.Peer, reason interface{}) {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
-	m.peerList[string(peer.ID())] = peer
+	delete(m.peerList, string(peer.ID()))
 }
 
 // Receive implements the Reactor interface. It is a no-op because
