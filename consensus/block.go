@@ -9,7 +9,7 @@ import (
 	tm "github.com/tendermint/tendermint/types"
 )
 
-func (s *State) addBlockPart(height int64, round int32, part *tm.Part) {
+func (s *Service) addBlockPart(height int64, round int32, part *tm.Part) {
 	// ignore block parts from a different height
 	if height != s.height {
 		log.Debug().Msg("received block part from a different height")
@@ -77,7 +77,7 @@ func (s *State) addBlockPart(height int64, round int32, part *tm.Part) {
 
 }
 
-func (s *State) handleProposal(proposal *tm.Proposal) {
+func (s *Service) handleProposal(proposal *tm.Proposal) {
 	if proposal.Height != s.height {
 		log.Debug().Msg("received proposal from a different height")
 		return
