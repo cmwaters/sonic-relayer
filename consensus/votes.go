@@ -7,7 +7,7 @@ import (
 )
 
 // addVote tallys new votes as they come in from peers
-func (s *State) addVote(vote *tm.Vote) {
+func (s *Service) addVote(vote *tm.Vote) {
 	if vote.Height != s.height {
 		log.Debug().Int64("state_height", s.height).Int64("vote_height", vote.Height).Msg("vote is for a different height")
 		return
