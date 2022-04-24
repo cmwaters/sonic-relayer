@@ -1,6 +1,7 @@
 package consensus
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"sync"
@@ -21,9 +22,18 @@ const (
 	broadcastInterval = 100 * time.Millisecond
 )
 
-// State tracks consensus state for a single chain. In particular
-// State monitors for new blocks and
-type State struct {
+type Provider interface {
+	ValidatorSet(ctx context.Context, height *int64) (*tm.ValidatorSet, error)
+}
+
+type Handler interface {
+	Process(block *tm.Block) error
+	Commit(blockID []byte, commit *tmproto.SignedHeader, valSet *tmproto.ValidatorSet)
+}
+
+// Service tracks consensus state for a single chain. In particular
+// Service monitors for new blocks and tallys votes
+type Service struct {
 	chainID  string
 	height   int64
 	ibc      Handler
@@ -40,8 +50,8 @@ type State struct {
 	peerList *clist.CList
 }
 
-func NewState(chainID string, height int64, handler Handler, provider Provider, currentValidators, nextValidators *tm.ValidatorSet) *State {
-	return &State{
+func NewService(chainID string, height int64, handler Handler, provider Provider, currentValidators, nextValidators *tm.ValidatorSet) *Service {
+	return &Service{
 		chainID:           chainID,
 		height:            height,
 		ibc:               handler,
@@ -60,7 +70,7 @@ func NewState(chainID string, height int64, handler Handler, provider Provider, 
 // the nodes current voteSetBits for each round and block
 // that the node has. This basically informs connected peers
 // which votes are remaining that need to be sent
-func (s State) BroadcastRoutine(ctx context.Context) {
+func (s Service) BroadcastRoutine(ctx context.Context) {
 	ticker := time.NewTicker(broadcastInterval)
 	var next *clist.CElement
 	for {
@@ -94,7 +104,7 @@ func (s State) BroadcastRoutine(ctx context.Context) {
 						s.mtx.Unlock()
 						continue
 					}
-					
+
 					peer := next.Value.(p2p.Peer)
 					msg := &csproto.VoteSetBits{
 						Height:  s.height,
@@ -125,7 +135,7 @@ func (s State) BroadcastRoutine(ctx context.Context) {
 // types: block messages and vote messages. Eventually, these messages
 // will lead to a commited block which is passed down to the handler
 // before moving state to the next height.
-func (s *State) Receive(chID byte, src p2p.Peer, msgBytes []byte) {
+func (s *Service) Receive(chID byte, src p2p.Peer, msgBytes []byte) {
 	pb := &csproto.Message{}
 	if err := proto.Unmarshal(msgBytes, pb); err != nil {
 		log.Error().Err(err)
@@ -174,12 +184,25 @@ func (s *State) Receive(chID byte, src p2p.Peer, msgBytes []byte) {
 }
 
 // commits a block, calling the handler and advancing to the next height
-func (s *State) commit(blockID tm.BlockID, voteSet *tm.VoteSet) {
+func (s *Service) commit(blockID tm.BlockID, voteSet *tm.VoteSet) {
 	// retrieve the block that corresponds to the committed block
 	block, ok := s.proposedBlocks[blockID.Hash.String()]
 	if !ok {
 		log.Info().Msg("received 2/3+ precommits for a block we don't have")
 		return
+	}
+
+	// Once a block is committed we then use the hashes in the header to validate
+	// that the validator set we received from the provider is correct
+	if nextValsHash := s.nextValidators.Hash(); !bytes.Equal(nextValsHash, block.NextValidatorsHash) {
+		log.Info().Msg("received invalid validator set from proposer. Fetching a new one")
+		nextHeight := s.height + 1
+		var err error
+		s.nextValidators, err = s.provider.ValidatorSet(context.Background(), &nextHeight)
+		if err != nil {
+			log.Error().Err(err)
+			return
+		}
 	}
 
 	// create the signed header for the new block. This is used by IBC as
@@ -204,9 +227,17 @@ func (s *State) commit(blockID tm.BlockID, voteSet *tm.VoteSet) {
 
 // advance signals the state that a block has been committed and to advance to the
 // next height. This clears all state
-func (s *State) advance() {
+func (s *Service) advance() {
 	s.height++
-	s.currentValidators = s.nextValidators
+	if s.nextValidators != nil {
+		s.currentValidators = s.nextValidators
+	} else {
+		var err error
+		s.currentValidators, err = s.provider.ValidatorSet(context.Background(), &s.height)
+		if err != nil {
+			log.Error().Err(err)
+		}
+	}
 
 	// reset all tally and block structs
 	s.proposedBlocks = make(map[string]*tm.Block)
@@ -214,13 +245,12 @@ func (s *State) advance() {
 	s.roundVoteSets = make(map[int32]*tm.VoteSet)
 	s.partSets = make(map[string]*tm.PartSet)
 
-	// retrieve the next validator set
-	// TODO: we may want to call this later on when we're sure most of
-	// the network has the validator set at the next height
-	s.nextValidators = s.provider.ValidatorSet(s.height)
+	// reset the next validator set. We will retrieve it when we start to see the first proposal
+	// We can't do this immediately as it's likely nodes haven't persisted the new validator set
+	s.nextValidators = nil
 }
 
-func (s *State) GetChannels() []*p2p.ChannelDescriptor {
+func (s *Service) GetChannels() []*p2p.ChannelDescriptor {
 	return []*p2p.ChannelDescriptor{
 		{
 			ID:                  cs.DataChannel,
@@ -246,11 +276,11 @@ func (s *State) GetChannels() []*p2p.ChannelDescriptor {
 	}
 }
 
-func (s *State) AddPeer(peer p2p.Peer) {
+func (s *Service) AddPeer(peer p2p.Peer) {
 	s.peerList.PushBack(peer)
 }
 
-func (s *State) RemovePeer(peer p2p.Peer, reason interface{}) {
+func (s *Service) RemovePeer(peer p2p.Peer, reason interface{}) {
 	for e := s.peerList.Front(); e != nil; e = e.Next() {
 		p := e.Value.(p2p.Peer)
 		if p.ID() == peer.ID() {
