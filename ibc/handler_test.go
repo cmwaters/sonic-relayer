@@ -3,19 +3,15 @@ package ibc_test
 import (
 	"github.com/stretchr/testify/suite"
 
-	magic "github.com/plural-labs/sonic-relayer/ibc"
+	handler "github.com/plural-labs/sonic-relayer/ibc"
 	mocks "github.com/plural-labs/sonic-relayer/testing/mocks"
 )
 
-type MagicTestSuite struct {
+type HandlerTestSuite struct {
 	suite.Suite
 }
 
-func (suite *MagicTestSuite) TestIBCMagic() {
-	var (
-		mockTxs []string
-	)
-
+func (suite *HandlerTestSuite) TestIBCHandler() {
 	testCases := []struct {
 		name     string
 		malleate func()
@@ -26,23 +22,17 @@ func (suite *MagicTestSuite) TestIBCMagic() {
 			func() {},
 			true,
 		},
-		{
-			"error decoding txs",
-			func() {
-				mockTxs = []string{"1"}
-			},
-			true,
-		},
 	}
 
 	for _, tc := range testCases {
 		tc := tc
 
 		suite.Run(tc.name, func() {
-			mockTxs = mocks.Base64EncodedTxs
+			mockTxs := mocks.BuildMockBlock()
 
 			tc.malleate()
-			_, err := magic.IBCMagic(mockTxs)
+			ibcHandler := handler.NewHandler()
+			err := ibcHandler.Process(mockTxs)
 
 			if tc.expPass {
 				suite.Require().NoError(err)
