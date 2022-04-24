@@ -1,19 +1,24 @@
 package consensus
 
 import (
+	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/rs/zerolog/log"
 	cs "github.com/tendermint/tendermint/consensus"
+	"github.com/tendermint/tendermint/libs/clist"
 	"github.com/tendermint/tendermint/p2p"
 	csproto "github.com/tendermint/tendermint/proto/tendermint/consensus"
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	tm "github.com/tendermint/tendermint/types"
 )
 
 const (
-	maxMsgSize = 1048576
+	maxMsgSize        = 1048576
+	broadcastInterval = 100 * time.Millisecond
 )
 
 // State tracks consensus state for a single chain. In particular
@@ -25,28 +30,93 @@ type State struct {
 	provider Provider
 
 	mtx               sync.Mutex
-	proposals         map[int32]string // round -> blockID
+	proposals         map[int32]tm.BlockID
 	partSets          map[string]*tm.PartSet
 	proposedBlocks    map[string]*tm.Block
 	roundVoteSets     map[int32]*tm.VoteSet
 	currentValidators *tm.ValidatorSet
 	nextValidators    *tm.ValidatorSet
 
-	peerMtx  sync.Mutex
-	peerList map[string]p2p.Peer
+	peerList *clist.CList
 }
 
-func NewState(chainID string, height int64, handler Handler, provider Provider) *State {
+func NewState(chainID string, height int64, handler Handler, provider Provider, currentValidators, nextValidators *tm.ValidatorSet) *State {
 	return &State{
-		chainID:        chainID,
-		height:         height,
-		ibc:            handler,
-		provider:       provider,
-		proposedBlocks: make(map[string]*tm.Block),
-		proposals:      make(map[int32]string),
-		roundVoteSets:  make(map[int32]*tm.VoteSet),
-		partSets:       make(map[string]*tm.PartSet),
-		peerList:       make(map[string]p2p.Peer),
+		chainID:           chainID,
+		height:            height,
+		ibc:               handler,
+		provider:          provider,
+		currentValidators: currentValidators,
+		nextValidators:    nextValidators,
+		proposedBlocks:    make(map[string]*tm.Block),
+		proposals:         make(map[int32]tm.BlockID),
+		roundVoteSets:     make(map[int32]*tm.VoteSet),
+		partSets:          make(map[string]*tm.PartSet),
+		peerList:          clist.New(),
+	}
+}
+
+// BroadcastRoutine continually loops through to send peers
+// the nodes current voteSetBits for each round and block
+// that the node has. This basically informs connected peers
+// which votes are remaining that need to be sent
+func (s State) BroadcastRoutine(ctx context.Context) {
+	ticker := time.NewTicker(broadcastInterval)
+	var next *clist.CElement
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.mtx.Lock()
+			// check if there's any vote state to send
+			if len(s.roundVoteSets) == 0 {
+				s.mtx.Unlock()
+				continue
+			}
+			// loop through all rounds and all received proposals constructing
+			// the voteset bits for each and gossiping them to individual peers
+			for round, roundVoteSet := range s.roundVoteSets {
+				for _, blockID := range s.proposals {
+					// next is nil at either the start or when the list has been
+					// exhausted in which case we get from the front
+					if next == nil {
+						next := s.peerList.Front()
+						if next == nil {
+							s.mtx.Unlock()
+							// we have no peers so sleep
+							continue
+						}
+					}
+					bitArray := roundVoteSet.BitArrayByBlockID(blockID)
+					if bitArray == nil {
+						// no bit array for this block ID
+						s.mtx.Unlock()
+						continue
+					}
+					
+					peer := next.Value.(p2p.Peer)
+					msg := &csproto.VoteSetBits{
+						Height:  s.height,
+						Round:   round,
+						Type:    tmproto.PrecommitType,
+						BlockID: blockID.ToProto(),
+						Votes:   *bitArray.ToProto(),
+					}
+					bz, err := msg.Marshal()
+					if err != nil {
+						log.Error().Err(err)
+						s.mtx.Unlock()
+						continue
+					}
+					// non-blocking. We don't check to see if the peers
+					// queue is full
+					_ = peer.TrySend(cs.VoteSetBitsChannel, bz)
+					next = next.Next()
+				}
+			}
+			s.mtx.Unlock()
+		}
 	}
 }
 
@@ -140,7 +210,7 @@ func (s *State) advance() {
 
 	// reset all tally and block structs
 	s.proposedBlocks = make(map[string]*tm.Block)
-	s.proposals = make(map[int32]string)
+	s.proposals = make(map[int32]tm.BlockID)
 	s.roundVoteSets = make(map[int32]*tm.VoteSet)
 	s.partSets = make(map[string]*tm.PartSet)
 
@@ -177,13 +247,15 @@ func (s *State) GetChannels() []*p2p.ChannelDescriptor {
 }
 
 func (s *State) AddPeer(peer p2p.Peer) {
-	s.peerMtx.Lock()
-	defer s.peerMtx.Unlock()
-	s.peerList[string(peer.ID())] = peer
+	s.peerList.PushBack(peer)
 }
 
 func (s *State) RemovePeer(peer p2p.Peer, reason interface{}) {
-	s.peerMtx.Lock()
-	defer s.peerMtx.Unlock()
-	delete(s.peerList, string(peer.ID()))
+	for e := s.peerList.Front(); e != nil; e = e.Next() {
+		p := e.Value.(p2p.Peer)
+		if p.ID() == peer.ID() {
+			s.peerList.Remove(e)
+			return
+		}
+	}
 }

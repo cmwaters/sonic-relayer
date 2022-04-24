@@ -21,7 +21,7 @@ func (s *State) addBlockPart(height int64, round int32, part *tm.Part) {
 		log.Debug().Msg("block part is for a proposal we haven't received yet")
 		return
 	}
-	partSet, ok := s.partSets[proposedBlockID]
+	partSet, ok := s.partSets[proposedBlockID.Hash.String()]
 	if !ok {
 		log.Error().Msg("don't have part set for corresponding proposal")
 	}
@@ -57,7 +57,7 @@ func (s *State) addBlockPart(height int64, round int32, part *tm.Part) {
 		}
 
 		// save the block
-		s.proposedBlocks[proposedBlockID] = block
+		s.proposedBlocks[proposedBlockID.Hash.String()] = block
 		// get the ibc handler to preprocess the block
 		err = s.ibc.Process(block)
 		if err != nil {
@@ -101,5 +101,5 @@ func (s *State) handleProposal(proposal *tm.Proposal) {
 
 	// create partset from the proposal and throw out the proposal
 	s.partSets[proposal.BlockID.Hash.String()] = tm.NewPartSetFromHeader(proposal.BlockID.PartSetHeader)
-	s.proposals[proposal.Round] = proposal.BlockID.Hash.String()
+	s.proposals[proposal.Round] = proposal.BlockID
 }
