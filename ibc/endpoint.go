@@ -13,8 +13,7 @@ type CounterpartyReader interface {
 
 // Endpoint represents a channel endpoint and its associated
 // client and connections. It contains client, connection, and channel
-// configuration parameters. Endpoint functions will utilize the parameters
-// set in the configuration structs when executing IBC messages.
+// configuration parameters.
 type Endpoint struct {
 	ClientID     string
 	ConnectionID string
