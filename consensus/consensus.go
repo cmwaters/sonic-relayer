@@ -1,6 +1,7 @@
 package consensus
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"sync"
@@ -22,7 +23,7 @@ const (
 )
 
 type Provider interface {
-	ValidatorSet(height int64) *tm.ValidatorSet
+	ValidatorSet(ctx context.Context, height *int64) (*tm.ValidatorSet, error)
 }
 
 type Handler interface {
@@ -191,6 +192,19 @@ func (s *Service) commit(blockID tm.BlockID, voteSet *tm.VoteSet) {
 		return
 	}
 
+	// Once a block is committed we then use the hashes in the header to validate
+	// that the validator set we received from the provider is correct
+	if nextValsHash := s.nextValidators.Hash(); !bytes.Equal(nextValsHash, block.NextValidatorsHash) {
+		log.Info().Msg("received invalid validator set from proposer. Fetching a new one")
+		nextHeight := s.height + 1
+		var err error
+		s.nextValidators, err = s.provider.ValidatorSet(context.Background(), &nextHeight)
+		if err != nil {
+			log.Error().Err(err)
+			return
+		}
+	}
+
 	// create the signed header for the new block. This is used by IBC as
 	// the commitment proof
 	commit := tm.SignedHeader{
@@ -215,7 +229,15 @@ func (s *Service) commit(blockID tm.BlockID, voteSet *tm.VoteSet) {
 // next height. This clears all state
 func (s *Service) advance() {
 	s.height++
-	s.currentValidators = s.nextValidators
+	if s.nextValidators != nil {
+		s.currentValidators = s.nextValidators
+	} else {
+		var err error
+		s.currentValidators, err = s.provider.ValidatorSet(context.Background(), &s.height)
+		if err != nil {
+			log.Error().Err(err)
+		}
+	}
 
 	// reset all tally and block structs
 	s.proposedBlocks = make(map[string]*tm.Block)
@@ -223,10 +245,9 @@ func (s *Service) advance() {
 	s.roundVoteSets = make(map[int32]*tm.VoteSet)
 	s.partSets = make(map[string]*tm.PartSet)
 
-	// retrieve the next validator set
-	// TODO: we may want to call this later on when we're sure most of
-	// the network has the validator set at the next height
-	s.nextValidators = s.provider.ValidatorSet(s.height)
+	// reset the next validator set. We will retrieve it when we start to see the first proposal
+	// We can't do this immediately as it's likely nodes haven't persisted the new validator set
+	s.nextValidators = nil
 }
 
 func (s *Service) GetChannels() []*p2p.ChannelDescriptor {

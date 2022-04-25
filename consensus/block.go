@@ -1,6 +1,7 @@
 package consensus
 
 import (
+	"context"
 	"io/ioutil"
 
 	"github.com/gogo/protobuf/proto"
@@ -43,17 +44,27 @@ func (s *Service) addBlockPart(height int64, round int32, part *tm.Part) {
 		bz, err := ioutil.ReadAll(partSet.GetReader())
 		if err != nil {
 			log.Error().Err(err)
+			return
 		}
 
 		var pbb = new(tmproto.Block)
 		err = proto.Unmarshal(bz, pbb)
 		if err != nil {
 			log.Error().Err(err)
+			return
 		}
 
 		block, err := tm.BlockFromProto(pbb)
 		if err != nil {
 			log.Error().Err(err)
+			return
+		}
+
+		// Do a basic validation check. Note we don't actually properly verify the block
+		// but trust that the honest majority will vote for a valid block
+		if err := block.ValidateBasic(); err != nil {
+			log.Error().Err(err).Msg("invalid proposed block")
+			return
 		}
 
 		// save the block
@@ -102,4 +113,13 @@ func (s *Service) handleProposal(proposal *tm.Proposal) {
 	// create partset from the proposal and throw out the proposal
 	s.partSets[proposal.BlockID.Hash.String()] = tm.NewPartSetFromHeader(proposal.BlockID.PartSetHeader)
 	s.proposals[proposal.Round] = proposal.BlockID
+
+	if s.nextValidators == nil {
+		nextHeight := s.height + 1
+		var err error
+		s.nextValidators, err = s.provider.ValidatorSet(context.TODO(), &nextHeight)
+		if err != nil {
+			log.Error().Err(err)
+		}
+	}
 }
