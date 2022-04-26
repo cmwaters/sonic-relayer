@@ -1,0 +1,25 @@
+# This is a test config for prototyping the sonic relayer
+
+root_dir = ".sonic"
+moniker = "sonic"
+# this is used to sign cosmos sdk txs
+mnemonic = "" # to be filled out
+max_peers = 5
+
+[chain_a]
+
+name = "chain-a"
+id = "simd-1"
+listen_address = "0.0.0.0:26657"
+external_address = "0.0.0.0:26657"
+rpc = "" # to be filled out
+app_version = 0
+
+[chain_b]
+
+name = "chain-b"
+id = "simd-2"
+listen_address = "0.0.0.0:36657"
+external_address = "0.0.0.0:36657"
+rpc = "" # to be filled out
+app_version = 0

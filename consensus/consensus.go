@@ -34,7 +34,7 @@ type Handler interface {
 var _ p2p.Reactor = &Service{}
 
 // Service tracks consensus state for a single chain. In particular
-// Service monitors for new blocks and tallys votes
+// Service monitors for new blocks and tallies votes
 type Service struct {
 	p2p.BaseReactor
 

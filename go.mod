@@ -3,6 +3,7 @@ module github.com/plural-labs/sonic-relayer
 go 1.17
 
 require (
+	github.com/BurntSushi/toml v1.1.0
 	github.com/cosmos/cosmos-sdk v0.45.3
 	github.com/cosmos/ibc-go/v3 v3.0.0
 	github.com/gogo/protobuf v1.3.3
