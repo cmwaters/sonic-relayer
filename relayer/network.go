@@ -66,6 +66,12 @@ func runNetwork(
 
 	select {
 	case <-ctx.Done():
-		return network.Stop()
+		err := network.Stop()
+		if err != nil {
+			return err
+		}
+		// wait for all services to shut down
+		<- network.Quit()
+		return nil
 	}
 }
