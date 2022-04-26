@@ -1,9 +1,13 @@
 package ibc
 
 import (
-	"fmt"
+	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types/tx"
+	transfer "github.com/cosmos/ibc-go/v3/modules/apps/transfer/types"
+	client "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
+	channel "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
+
 	ibcclient "github.com/cosmos/ibc-go/v3/modules/light-clients/07-tendermint/types"
 	"github.com/gogo/protobuf/proto"
 	"github.com/plural-labs/sonic-relayer/router"
@@ -60,11 +64,65 @@ func (h Handler) Process(block *tm.Block) error {
 
 		// parse IBC messages
 		for _, msg := range msgs {
-			fmt.Println(msg)
+			switch m := msg.(type) {
+			case *transfer.MsgTransfer:
+				return h.processTransferMsg()
+			case *client.MsgUpdateClient:
+				return h.processUpdateClientMsg()
+			default:
+				return nil
+			}
 		}
 	}
 
-	// h.pendingTxs[string(proofCommitment)] = outboundTxs
+	return nil
+}
+
+// processTransferMsg simulates the execution of a transfer message, caching the state
+// changes to IBC and producing the packet that needs to be sent to another chain
+func (h Handler) processTransferMsg(msg *transfer.MsgTransfer) error {
+	// timeoutTimestamp set to max value with the unsigned bit shifted to sastisfy hermes timestamp conversion
+	// it is the responsibility of the auth module developer to ensure an appropriate timeout timestamp
+	timeoutTimestamp := time.Now().Add(time.Minute).UnixNano()
+
+	fullDenomPath := token.Denom
+	packetData := transfer.NewFungibleTokenPacketData(
+		fullDenomPath, msg.Token.Amount.String(), msg.Sender.String(), msg.Receiver,
+	)
+
+	nextSendSeq := h.EndpointA.NextSequenceSend
+
+	packet := channel.NewPacket(
+		icaPacketData.GetBytes(),
+		nextSeqSend,
+		h.EndpointA.SourcePort,
+		h.EndpointA.SourceChannel,
+		h.EndpointB.CounterpartyPortID,
+		h.EndpointB.CounterpartyChannel,
+		client.ZeroHeight(),
+		timeoutTimestamp,
+	)
+
+	msg := &channel.MsgRecvPacket{
+		Packet:          packet,
+		ProofCommitment: proofCommitment,
+		ProofHeight: v3client.Height{
+			RevisionNumber: h.ibcState.RevisionNumber,
+			RevisionHeight: uint64(block.Height),
+		},
+		Signer: h.Signer.Address,
+	}
+
+	proposedTx, err := encodeTx(msg)
+	if err != nil {
+		return err
+	}
+
+	// still decided where I'll do this
+	// h.cacheStateChanges()
+
+	h.pendingTxs.append(proposedTx)
+
 	return nil
 }
 
