@@ -20,8 +20,13 @@ type Handler struct {
 	// transactions will be ready to submit to the counterparty Mempool once 2/3 votes have been tallied
 	pendingTxs []sdk.Tx
 
+	// The keyring is used to sign outbound transactions before
+	// they are routed to the respective mempool
+	// TODO: This could be abstracted out as a separate component
+	//signer keyring.Keyring
+
 	// the IBC handler has write access to the counterparty Mempool
-	counterpartyMempool router.Mempool
+	counterpartyMempool *router.Mempool
 
 	// Each handler has write access to the Endpoint of the chain
 	// it is receiving blocks on and read access to the counterparty chains Endpoint
@@ -29,8 +34,13 @@ type Handler struct {
 	EndpointB CounterpartyReader
 }
 
-func NewHandler() *Handler {
-	return &Handler{}
+func NewHandler(counterpartyMempool *router.Mempool) *Handler {
+	return &Handler{
+		//signer:              signer,
+		counterpartyMempool: counterpartyMempool,
+		pendingTxs:          []sdk.Tx{},
+		// TODO add necessary information for IBC
+	}
 }
 
 // Process takes a proposed block and scans for IBC messages,
@@ -94,38 +104,42 @@ func (h *Handler) Commit(blockID []byte, commit *tmproto.SignedHeader, valSet *t
 func (h Handler) BroadcastPackets(header *ibcclient.Header, chainID string, tx sdk.Tx) error {
 	// TODO: refactor to use Mempool directly
 	/*
-		counterpartyState, ok := h.counterpartyStates[chainID]
-		if !ok {
-			panic(fmt.Sprintf("unknown ibc state for %s", chainID))
-		}
+				counterpartyState, ok := h.counterpartyStates[chainID]
+				if !ok {
+					panic(fmt.Sprintf("unknown ibc state for %s", chainID))
+				}
 
-		updateMsg, err := client.NewMsgUpdateClient(counterpartyState.GetClientID(), header, "")
-		if err != nil {
-			return err
-		}
+				updateMsg, err := client.NewMsgUpdateClient(counterpartyState.GetClientID(), header, "")
+				if err != nil {
+					return err
+				}
 
-		updateAnyMsg, err := codec.NewAnyWithValue(updateMsg)
-		if err != nil {
-			return err
-		}
+				updateAnyMsg, err := codec.NewAnyWithValue(updateMsg)
+				if err != nil {
+					return err
+				}
 
-		// add the client proof to the front of the messages.
-		// This should execute first
-		tx.Body.Messages = append([]*codec.Any{updateAnyMsg}, tx.Body.Messages...)
+				// add the client proof to the front of the messages.
+				// This should execute first
+				tx.Body.Messages = append([]*codec.Any{updateAnyMsg}, tx.Body.Messages...)
 
-		signedTx, err := h.Sign(tx)
-		if err != nil {
-			return err
-		}
+				signedTx, err := h.Sign(tx)
+				if err != nil {
+					return err
+				}
 
-		completedTx, err := h.PrepareTx(signedTx)
-		if err != nil {
-			return err
-		}
+				completedTx, err := h.PrepareTx(signedTx)
+				if err != nil {
+					return err
+				}
 
-		return h.txRouter.Send(chainID, []tm.Tx{completedTx})
+		<<<<<<< HEAD
+				return h.txRouter.Send(chainID, []tm.Tx{completedTx})
 	*/
 	return nil
+
+	// broadcast the tx to the counterpary mempool
+	//return h.counterpartyMempool.BroadcastTx(completedTx)
 }
 
 // TODO: When processing a block we should cache the transactions that will update

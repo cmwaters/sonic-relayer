@@ -8,12 +8,16 @@ import (
 	proto "github.com/tendermint/tendermint/proto/tendermint/mempool"
 )
 
+var _ p2p.Reactor = &Mempool{}
+
 // Mempool is a simple send-only in memory pool for
 // broadcasting transactions to connected peers on this chain
 // It does not communicate to an application using `CheckTx`
 // but rather assumes that transactions passed to it have
 // been correctly constructed
 type Mempool struct {
+	p2p.BaseReactor
+
 	mtx      sync.Mutex
 	peerList map[string]p2p.Peer
 }

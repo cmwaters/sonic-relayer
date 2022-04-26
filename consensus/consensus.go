@@ -23,7 +23,7 @@ const (
 )
 
 type Provider interface {
-	ValidatorSet(ctx context.Context, height *int64) (*tm.ValidatorSet, error)
+	ValidatorSet(ctx context.Context, height *int64) (*tm.ValidatorSet, int64, error)
 }
 
 type Handler interface {
@@ -31,9 +31,13 @@ type Handler interface {
 	Commit(blockID []byte, commit *tmproto.SignedHeader, valSet *tmproto.ValidatorSet)
 }
 
+var _ p2p.Reactor = &Service{}
+
 // Service tracks consensus state for a single chain. In particular
 // Service monitors for new blocks and tallys votes
 type Service struct {
+	p2p.BaseReactor
+
 	chainID  string
 	height   int64
 	ibc      Handler
@@ -198,7 +202,7 @@ func (s *Service) commit(blockID tm.BlockID, voteSet *tm.VoteSet) {
 		log.Info().Msg("received invalid validator set from proposer. Fetching a new one")
 		nextHeight := s.height + 1
 		var err error
-		s.nextValidators, err = s.provider.ValidatorSet(context.Background(), &nextHeight)
+		s.nextValidators, _, err = s.provider.ValidatorSet(context.Background(), &nextHeight)
 		if err != nil {
 			log.Error().Err(err)
 			return
@@ -233,7 +237,7 @@ func (s *Service) advance() {
 		s.currentValidators = s.nextValidators
 	} else {
 		var err error
-		s.currentValidators, err = s.provider.ValidatorSet(context.Background(), &s.height)
+		s.currentValidators, _, err = s.provider.ValidatorSet(context.Background(), &s.height)
 		if err != nil {
 			log.Error().Err(err)
 		}

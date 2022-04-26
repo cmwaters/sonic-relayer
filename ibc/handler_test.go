@@ -4,6 +4,7 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	handler "github.com/plural-labs/sonic-relayer/ibc"
+	"github.com/plural-labs/sonic-relayer/router"
 	mocks "github.com/plural-labs/sonic-relayer/testing/mocks"
 )
 
@@ -31,7 +32,8 @@ func (suite *HandlerTestSuite) TestIBCHandler() {
 			mockTxs := mocks.BuildMockBlock()
 
 			tc.malleate()
-			ibcHandler := handler.NewHandler()
+			counterpartyMempool := router.NewMempool()
+			ibcHandler := handler.NewHandler(counterpartyMempool)
 			err := ibcHandler.Process(mockTxs)
 
 			if tc.expPass {

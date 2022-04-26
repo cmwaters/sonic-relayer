@@ -23,7 +23,7 @@ func NewRPCClient(endpoints []string) *RPCClient {
 
 // ValidatorSet queries the available endpoints for the validator set of the chain. It only errors
 // if none of the endpoints return a valid validator set or a context is cancelled.
-func (c *RPCClient) ValidatorSet(ctx context.Context, height *int64) (*tm.ValidatorSet, error) {
+func (c *RPCClient) ValidatorSet(ctx context.Context, height *int64) (*tm.ValidatorSet, int64, error) {
 	const maxPages = 100
 
 	var (
@@ -37,11 +37,11 @@ func (c *RPCClient) ValidatorSet(ctx context.Context, height *int64) (*tm.Valida
 OUTER_LOOP:
 	for {
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return nil, -1, ctx.Err()
 		}
 		c.index = (c.index + 1) % len(c.endpoints)
 		if c.index == startingIndex {
-			return nil, fmt.Errorf("no endpoint was able to provide a valid validator set for height %d", height)
+			return nil, -1, fmt.Errorf("no endpoint was able to provide a valid validator set for height %d", height)
 		}
 		client, err := http.New(c.endpoints[c.index], "/websocket")
 		if err != nil {
@@ -53,6 +53,16 @@ OUTER_LOOP:
 			if err != nil {
 				log.Error().Err(err)
 				continue OUTER_LOOP
+			}
+
+			// check that the last height matches the one we requested
+			if height != nil && *height != res.BlockHeight {
+				continue OUTER_LOOP
+			}
+			if height == nil {
+				// if we didn't check the height then update it so
+				// we get validators for the correct height
+				height = &res.BlockHeight
 			}
 
 			// Validate response.
@@ -74,13 +84,13 @@ OUTER_LOOP:
 
 		valSet, err := tm.ValidatorSetFromExistingValidators(vals)
 		if err != nil {
-			return nil, err
+			return nil, -1, err
 		}
 		if err := valSet.ValidateBasic(); err != nil {
-			return nil, fmt.Errorf("returned validator set is invalid %v", err)
+			return nil, -1, fmt.Errorf("returned validator set is invalid %v", err)
 		}
 
-		return valSet, nil
+		return valSet, *height, nil
 
 	}
 }
