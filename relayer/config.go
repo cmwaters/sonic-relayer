@@ -1,14 +1,13 @@
 package relayer
 
 type Config struct {
-	GlobalConfig
-	Chains []ChainConfig
-}
-
-type GlobalConfig struct {
-	RootDir  string
-	Moniker  string
+	RootDir string
+	Moniker string
+	// temporary: for prototyping
+	Mnemonic string
 	MaxPeers int
+	ChainA   ChainConfig
+	ChainB   ChainConfig
 }
 
 type ChainConfig struct {
@@ -16,6 +15,6 @@ type ChainConfig struct {
 	ID              string
 	ListenAddress   string
 	ExternalAddress string
-	Endpoints       []string
+	RPC             string
 	AppVersion      uint64
 }

@@ -117,7 +117,7 @@ func (s *Service) handleProposal(proposal *tm.Proposal) {
 	if s.nextValidators == nil {
 		nextHeight := s.height + 1
 		var err error
-		s.nextValidators, err = s.provider.ValidatorSet(context.TODO(), &nextHeight)
+		s.nextValidators, _, err = s.provider.ValidatorSet(context.TODO(), &nextHeight)
 		if err != nil {
 			log.Error().Err(err)
 		}

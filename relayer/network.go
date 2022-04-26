@@ -1,31 +1,35 @@
 package relayer
 
 import (
+	"context"
 	"path/filepath"
 
 	"github.com/tendermint/tendermint/config"
 	cs "github.com/tendermint/tendermint/consensus"
-	"github.com/tendermint/tendermint/mempool"
+	mpl "github.com/tendermint/tendermint/mempool"
 	"github.com/tendermint/tendermint/p2p"
 	"github.com/tendermint/tendermint/p2p/conn"
 	"github.com/tendermint/tendermint/p2p/pex"
 	"github.com/tendermint/tendermint/version"
+
+	"github.com/plural-labs/sonic-relayer/consensus"
+	"github.com/plural-labs/sonic-relayer/router"
 )
 
-type Network struct {
-	transport p2p.Transport
-	sw        *p2p.Switch
-	addrBook  pex.AddrBook
-}
-
-func NewNetwork(cfg GlobalConfig, chain ChainConfig) (*Network, error) {
+func runNetwork(
+	ctx context.Context,
+	cfg *Config,
+	chain ChainConfig,
+	consensus *consensus.Service,
+	mempool *router.Mempool,
+) error {
 	chainDir := filepath.Join(cfg.RootDir, chain.Name)
 	addressBookFile := filepath.Join(chainDir, "peers.json")
 	nodeKeyFile := filepath.Join(chainDir, "node.json")
 
 	nodeKey, err := p2p.LoadOrGenNodeKey(nodeKeyFile)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	nodeInfo := p2p.DefaultNodeInfo{
 		ProtocolVersion: p2p.NewProtocolVersion(
@@ -38,7 +42,7 @@ func NewNetwork(cfg GlobalConfig, chain ChainConfig) (*Network, error) {
 		Version:       version.TMCoreSemVer,
 		Channels: []byte{
 			cs.DataChannel, cs.VoteChannel, cs.VoteSetBitsChannel,
-			mempool.MempoolChannel,
+			mpl.MempoolChannel,
 		},
 		Moniker: cfg.Moniker,
 	}
@@ -53,9 +57,15 @@ func NewNetwork(cfg GlobalConfig, chain ChainConfig) (*Network, error) {
 	addrBook := pex.NewAddrBook(addressBookFile, false)
 	network.SetAddrBook(addrBook)
 
-	return &Network{
-		transport: transport,
-		sw:        network,
-		addrBook:  addrBook,
-	}, nil
+	network.AddReactor("CONSENSUS", consensus)
+	network.AddReactor("MEMPOOL", mempool)
+
+	if err := network.Start(); err != nil {
+		return err
+	}
+
+	select {
+	case <-ctx.Done():
+		return network.Stop()
+	}
 }

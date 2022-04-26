@@ -36,7 +36,8 @@ type Handler struct {
 
 	// TxRouter wraps multiple mempools allowing for each hander
 	// to fire completed transactions across to other chains
-	txRouter router.TxRouter
+	// TODO: for now we use a single counterparty mempool
+	counterpartyMempool *router.Mempool
 
 	// Each handler has write access to the IBC state of the chain
 	// it is receiving blocks on and read access to all the IBC
@@ -49,8 +50,13 @@ type Handler struct {
 // IDs of the chains they should be submitted on
 type TxSet map[string]sdk.Tx
 
-func NewHandler() *Handler {
-	return &Handler{}
+func NewHandler(signer keyring.Keyring, counterpartyMempool *router.Mempool) *Handler {
+	return &Handler{
+		signer:              signer,
+		counterpartyMempool: counterpartyMempool,
+		pendingTxs:          make(map[string]TxSet),
+		// TODO add necessary information for IBC
+	}
 }
 
 // Process takes a perspective block and scans for IBC messages,
@@ -164,7 +170,8 @@ func (h Handler) BroadcastPackets(header *ibcclient.Header, chainID string, tx s
 		return err
 	}
 
-	return h.txRouter.Send(chainID, []tm.Tx{completedTx})
+	// broadcast the tx to the counterpary mempool
+	return h.counterpartyMempool.BroadcastTx(completedTx)
 }
 
 // TODO: When processing a block we should cache the transactions that will update
