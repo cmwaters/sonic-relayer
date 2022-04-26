@@ -9,8 +9,8 @@ import (
 
 const keyName = "sonic"
 
-func newSigner(cfg *Config) (keyring.Keyring, error) {
-	k, err := getKeyring(cfg)
+func NewSigner(cfg *Config) (keyring.Keyring, error) {
+	k, err := GetKeyring(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -39,7 +39,7 @@ func newSigner(cfg *Config) (keyring.Keyring, error) {
 	return k, nil
 }
 
-func getKeyring(cfg *Config) (keyring.Keyring, error) {
+func GetKeyring(cfg *Config) (keyring.Keyring, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
