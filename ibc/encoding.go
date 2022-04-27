@@ -14,13 +14,3 @@ func decodeRawTx(txBytes []byte) ([]sdk.Msg, error) {
 
 	return Tx.GetMsgs(), nil
 }
-
-func encodeTx(msg sdk.Msg) ([]byte, error) {
-	var Tx tx.Tx
-
-	if err := proto.Marshal(msg, &Tx); err != nil {
-		return tx.Tx{}, err
-	}
-
-	return Tx, nil
-}

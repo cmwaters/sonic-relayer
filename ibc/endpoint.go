@@ -5,12 +5,6 @@ import (
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
-// CounterpartyReader exposes reading only functionality of an Endpoint
-type CounterpartyReader interface {
-	GetClientID() string
-	GerRevisionNumber() uint64
-}
-
 // Endpoint represents a channel endpoint and its associated
 // client and connections. It contains client, connection, and channel
 // configuration parameters.
@@ -23,9 +17,13 @@ type Endpoint struct {
 	// It usually doesn't change unless a hard fork happens
 	RevisionNumber uint64
 
-	// The last trusted height and validator set
-	LastTrustedHeight     client.Height
+	// LastTrustedHeight is the last known trusted height
+	LastTrustedHeight client.Height
+
 	LastTrustedValidators *tmproto.ValidatorSet
+
+	// NextPacketSequence is the packet sequence for the next outbound packet
+	NextPacketSeq uint64
 }
 
 type Channel struct {

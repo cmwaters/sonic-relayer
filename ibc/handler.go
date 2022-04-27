@@ -1,8 +1,7 @@
 package ibc
 
 import (
-	"time"
-
+	"github.com/cosmos/cosmos-sdk/types/tx"
 	sdk "github.com/cosmos/cosmos-sdk/types/tx"
 	transfer "github.com/cosmos/ibc-go/v3/modules/apps/transfer/types"
 	client "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
@@ -32,10 +31,10 @@ type Handler struct {
 	// the IBC handler has write access to the counterparty Mempool
 	counterpartyMempool *router.Mempool
 
-	// Each handler has write access to the Endpoint of the chain
-	// it is receiving blocks on and read access to the counterparty chains Endpoint
+	// TODO: remove write access for EndpointB in future
+	// Each handler has write & read access to the Endpoint of the chain
 	EndpointA Endpoint
-	EndpointB CounterpartyReader
+	EndpointB Endpoint
 }
 
 func NewHandler(counterpartyMempool *router.Mempool) *Handler {
@@ -66,9 +65,9 @@ func (h Handler) Process(block *tm.Block) error {
 		for _, msg := range msgs {
 			switch m := msg.(type) {
 			case *transfer.MsgTransfer:
-				return h.processTransferMsg()
+				return h.processTransferMsg(&msg, block)
 			case *client.MsgUpdateClient:
-				return h.processUpdateClientMsg()
+				// return h.processUpdateClientMsg()
 			default:
 				return nil
 			}
@@ -80,43 +79,50 @@ func (h Handler) Process(block *tm.Block) error {
 
 // processTransferMsg simulates the execution of a transfer message, caching the state
 // changes to IBC and producing the packet that needs to be sent to another chain
-func (h Handler) processTransferMsg(msg *transfer.MsgTransfer) error {
-	// timeoutTimestamp set to max value with the unsigned bit shifted to sastisfy hermes timestamp conversion
-	// it is the responsibility of the auth module developer to ensure an appropriate timeout timestamp
-	timeoutTimestamp := time.Now().Add(time.Minute).UnixNano()
+func (h Handler) processTransferMsg(msg *transfer.MsgTransfer, block *tm.Block) error {
 
-	fullDenomPath := token.Denom
+	// create MsgOnRecvPacket
+	fullDenomPath := msg.Token.Denom
 	packetData := transfer.NewFungibleTokenPacketData(
-		fullDenomPath, msg.Token.Amount.String(), msg.Sender.String(), msg.Receiver,
+		fullDenomPath, msg.Token.Amount.String(), msg.Sender, msg.Receiver,
 	)
 
-	nextSendSeq := h.EndpointA.NextSequenceSend
+	nextSeqSend := h.EndpointA.NextPacketSeq
 
 	packet := channel.NewPacket(
-		icaPacketData.GetBytes(),
+		packetData.GetBytes(),
 		nextSeqSend,
-		h.EndpointA.SourcePort,
-		h.EndpointA.SourceChannel,
-		h.EndpointB.CounterpartyPortID,
-		h.EndpointB.CounterpartyChannel,
-		client.ZeroHeight(),
-		timeoutTimestamp,
+		h.EndpointA.Channel.PortID,
+		h.EndpointA.Channel.ChannelID,
+		h.EndpointB.Channel.PortID,
+		h.EndpointB.Channel.ChannelID,
+		msg.TimeoutHeight,
+		msg.TimeoutTimestamp,
 	)
 
-	msg := &channel.MsgRecvPacket{
+	proofCommitment := block.Hash().Bytes()
+
+	recvMsg := &channel.MsgRecvPacket{
 		Packet:          packet,
-		ProofCommitment: proofCommitment,
-		ProofHeight: v3client.Height{
-			RevisionNumber: h.ibcState.RevisionNumber,
+		ProofCommitment: block.Hash(),
+		ProofHeight: client.Height{
+			RevisionNumber: h.EndpointA.RevisionNumber,
 			RevisionHeight: uint64(block.Height),
 		},
-		Signer: h.Signer.Address,
+		Signer: "",
 	}
 
-	proposedTx, err := encodeTx(msg)
-	if err != nil {
-		return err
+	// build updateClientMsg
+	updateClientMsg := &client.MsgUpdateClient{
+		ClientId: h.EndpointA.ClientID,
+		// TODO:
+		Header: block.Header,
+		Signer: "",
 	}
+
+	// TODO: build and sign the multi msg tx
+	// create helper fn
+	proposedTx := tx.Tx{}
 
 	// still decided where I'll do this
 	// h.cacheStateChanges()
