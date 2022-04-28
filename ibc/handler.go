@@ -65,7 +65,7 @@ func (h Handler) Process(block *tm.Block) error {
 		for _, msg := range msgs {
 			switch m := msg.(type) {
 			case *transfer.MsgTransfer:
-				return h.processTransferMsg(&msg, block)
+				return h.processTransferMsg(m, block)
 			case *client.MsgUpdateClient:
 				// return h.processUpdateClientMsg()
 			default:
@@ -100,23 +100,13 @@ func (h Handler) processTransferMsg(msg *transfer.MsgTransfer, block *tm.Block) 
 		msg.TimeoutTimestamp,
 	)
 
-	proofCommitment := block.Hash().Bytes()
-
-	recvMsg := &channel.MsgRecvPacket{
+	_ = &channel.MsgRecvPacket{
 		Packet:          packet,
 		ProofCommitment: block.Hash(),
 		ProofHeight: client.Height{
 			RevisionNumber: h.EndpointA.RevisionNumber,
 			RevisionHeight: uint64(block.Height),
 		},
-		Signer: "",
-	}
-
-	// build updateClientMsg
-	updateClientMsg := &client.MsgUpdateClient{
-		ClientId: h.EndpointA.ClientID,
-		// TODO:
-		Header: block.Header,
 		Signer: "",
 	}
 
@@ -127,7 +117,7 @@ func (h Handler) processTransferMsg(msg *transfer.MsgTransfer, block *tm.Block) 
 	// still decided where I'll do this
 	// h.cacheStateChanges()
 
-	h.pendingTxs.append(proposedTx)
+	h.pendingTxs = append(h.pendingTxs, proposedTx)
 
 	return nil
 }
