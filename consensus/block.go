@@ -50,13 +50,13 @@ func (s *Service) addBlockPart(height int64, round int32, part *tm.Part) {
 		var pbb = new(tmproto.Block)
 		err = proto.Unmarshal(bz, pbb)
 		if err != nil {
-			log.Error().Err(err)
+			log.Error().Err(err).Msg("unmarshal block")
 			return
 		}
 
 		block, err := tm.BlockFromProto(pbb)
 		if err != nil {
-			log.Error().Err(err)
+			log.Error().Err(err).Msg("converting block from proto")
 			return
 		}
 
@@ -75,10 +75,11 @@ func (s *Service) addBlockPart(height int64, round int32, part *tm.Part) {
 
 		// save the block
 		s.proposedBlocks[proposedBlockID.Hash.String()] = block
+		log.Info().Msg("received new block")
 		// get the ibc handler to preprocess the block
 		err = s.ibc.Process(block)
 		if err != nil {
-			log.Error().Err(err)
+			log.Error().Err(err).Msg("processing block")
 		}
 
 		for _, voteSet := range s.roundVoteSets {
@@ -96,7 +97,7 @@ func (s *Service) addBlockPart(height int64, round int32, part *tm.Part) {
 
 func (s *Service) handleProposal(proposal *tm.Proposal) {
 	if proposal.Height != s.height {
-		log.Debug().Msg("received proposal from a different height")
+		log.Debug().Int64("height", proposal.Height).Msg("received proposal from a different height")
 		return
 	}
 
@@ -125,12 +126,17 @@ func (s *Service) handleProposal(proposal *tm.Proposal) {
 	s.partSets[proposal.BlockID.Hash.String()] = tm.NewPartSetFromHeader(proposal.BlockID.PartSetHeader)
 	s.proposals[proposal.Round] = proposal.BlockID
 
+	// now that we've received a proposal, we can be sure that the last block
+	// was committed and thus we can calculate the next validators
 	if s.nextValidators == nil {
 		nextHeight := s.height + 1
 		var err error
+		// NOTE: We hold the lock for the entire duration that we're requesting a validator set. We should really return the lock in between
 		s.nextValidators, _, err = s.provider.ValidatorSet(context.TODO(), &nextHeight)
 		if err != nil {
 			log.Error().Err(err)
 		}
 	}
+
+	log.Info().Msg("received new proposal")
 }

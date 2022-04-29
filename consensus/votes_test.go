@@ -39,6 +39,25 @@ func (s *TestSuite) TestTallyVotes() {
 				suite.Require().NotNil(vote)
 			},
 		},
+		{
+			name: "received quorum without block",
+			votes: []*tm.Vote{
+				s.genVote(0, 1, 0, blockID),
+				s.genVote(1, 1, 0, blockID),
+				s.genVote(2, 1, 0, blockID),
+			},
+			assertions: func(suite *TestSuite) {
+				tally := suite.consensus.Tally(0)
+				suite.Require().True(tally.HasTwoThirdsMajority())
+			},
+		},
+		{
+			name:  "received vote for a different height",
+			votes: []*tm.Vote{s.genVote(0, 2, 0, blockID)},
+			assertions: func(suite *TestSuite) {
+				return
+			},
+		},
 	}
 
 	for _, tc := range testCases {

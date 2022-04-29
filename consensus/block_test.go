@@ -23,5 +23,4 @@ func (s *TestSuite) TestReceiveProposal() {
 	proposedBlockID, ok := proposals[int32(0)]
 	s.Require().True(ok)
 	s.Require().Equal(blockID, proposedBlockID)
-
 }
