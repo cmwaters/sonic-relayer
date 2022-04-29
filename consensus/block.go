@@ -67,6 +67,12 @@ func (s *Service) addBlockPart(height int64, round int32, part *tm.Part) {
 			return
 		}
 
+		// sanity check that the block ID is the same
+		if block.ChainID != s.chainID {
+			log.Error().Str("ChainID", block.ChainID).Str("BlockID", block.Hash().String()).Msg("unexpected chain id for block")
+			return
+		}
+
 		// save the block
 		s.proposedBlocks[proposedBlockID.Hash.String()] = block
 		// get the ibc handler to preprocess the block
@@ -100,7 +106,12 @@ func (s *Service) handleProposal(proposal *tm.Proposal) {
 
 	// Verify that the proposal's signature came from the expected proposer
 	p := proposal.ToProto()
-	val := s.currentValidators.CopyIncrementProposerPriority(proposal.Round)
+	var val *tm.ValidatorSet
+	if proposal.Round == 0 {
+		val = s.currentValidators.Copy()
+	} else {
+		val = s.currentValidators.CopyIncrementProposerPriority(proposal.Round)
+	}
 	if !val.GetProposer().PubKey.VerifySignature(
 		tm.ProposalSignBytes(s.chainID, p), proposal.Signature,
 	) {
