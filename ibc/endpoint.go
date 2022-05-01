@@ -17,12 +17,12 @@ type Endpoint struct {
 	// RevisionNumber is used as part of the height in packets.
 	// It usually doesn't change unless a hard fork happens
 	RevisionNumber uint64
+}
 
+type ClientState struct {
 	// LastTrustedHeight is the last known trusted height
 	LastTrustedHeight     client.Height
 	LastTrustedValidators *tmproto.ValidatorSet
-
-	NextPacketSeq uint64
 }
 
 type Channel struct {

@@ -71,7 +71,7 @@ func runNetwork(
 			return err
 		}
 		// wait for all services to shut down
-		<- network.Quit()
+		<-network.Quit()
 		return nil
 	}
 }

@@ -26,20 +26,27 @@ type Handler struct {
 	// transactions will be ready to submit to the counterparty Mempool once 2/3 votes have been tallied
 	pendingTxs map[string][]sdk.Msg
 
+	// The keyring is used to sign outbound transactions before
+	// they are routed to the respective mempool
+	accountant *Accountant
+
 	// the IBC handler has write access to the counterparty Mempool
 	counterpartyMempool *router.Mempool
 
-	// Each handler has write & read access to the Endpoint of the chain
-	EndpointA Endpoint
-	EndpointB Endpoint
+	SourceChain       Endpoint
+	CounterpartyChain Endpoint
+
+	ClientState   ClientState
+	NextPacketSeq uint64
 }
 
-func NewHandler(counterpartyMempool *router.Mempool, endpointA, endpointB Endpoint) *Handler {
+func NewHandler(counterpartyMempool *router.Mempool, accountant *Accountant, endpointA, endpointB Endpoint) *Handler {
 	return &Handler{
 		counterpartyMempool: counterpartyMempool,
 		pendingTxs:          make(map[string][]sdk.Msg),
-		EndpointA:           endpointA,
-		EndpointB:           endpointB,
+		SourceChain:         endpointA,
+		CounterpartyChain:   endpointB,
+		accountant:          accountant,
 	}
 }
 
@@ -69,7 +76,9 @@ func (h Handler) Process(block *tm.Block) error {
 				outboundMsgs = append(outboundMsgs, msg)
 				return nil
 			case *client.MsgUpdateClient:
-				//return h.processUpdateClientMsg()
+				// h.processUpdateClientMsg()
+			case *channel.MsgRecvPacket:
+				// h.processOnRecvPacketMsg()
 			default:
 				return nil
 			}
@@ -80,10 +89,22 @@ func (h Handler) Process(block *tm.Block) error {
 	return nil
 }
 
+// processUpdateClientMsg takes an UpdateClientMsg as input and updates the ClientState accordingly
+func (h Handler) processUpdateClientMsg(msg *client.MsgUpdateClient, block *tm.Block) error {
+	// update h.ClientState
+	return nil
+}
+
+// processOnRecvPacketMsg takes an MsgOnRecvPacket as input and returns the correspending msgOnAcknowledgementPacket
+func (h Handler) processOnRecvPacketMsg(msg *channel.MsgRecvPacket, block *tm.Block) (*channel.MsgAcknowledgement, error) {
+	// build and return msgOnAcknowledgementPacket
+	return &channel.MsgAcknowledgement{}, nil
+}
+
 // processTransferMsg builds and returns the correspending msgOnRecvPacket for a given msgTransfer
 func (h Handler) processTransferMsg(msg *transfer.MsgTransfer, block *tm.Block) (*channel.MsgRecvPacket, error) {
 	// we want to just relayer between two chains for the time being (channels are decided at config level)
-	if msg.SourceChannel != h.EndpointA.Channel.ChannelID {
+	if msg.SourceChannel != h.SourceChain.Channel.ChannelID {
 		return &channel.MsgRecvPacket{}, ErrChannelNotConfigured
 	}
 
@@ -93,18 +114,18 @@ func (h Handler) processTransferMsg(msg *transfer.MsgTransfer, block *tm.Block) 
 		fullDenomPath, msg.Token.Amount.String(), msg.Sender, msg.Receiver,
 	)
 
-	nextSeqSend := h.EndpointA.NextPacketSeq
+	nextSeqSend := h.NextPacketSeq
 
 	// incremement the send sequence for the next packet
-	h.EndpointA.NextPacketSeq++
+	h.NextPacketSeq++
 
 	packet := channel.NewPacket(
 		packetData.GetBytes(),
 		nextSeqSend,
-		h.EndpointA.Channel.PortID,
-		h.EndpointA.Channel.ChannelID,
-		h.EndpointB.Channel.PortID,
-		h.EndpointB.Channel.ChannelID,
+		h.SourceChain.Channel.PortID,
+		h.SourceChain.Channel.ChannelID,
+		h.CounterpartyChain.Channel.PortID,
+		h.CounterpartyChain.Channel.ChannelID,
 		msg.TimeoutHeight,
 		msg.TimeoutTimestamp,
 	)
@@ -113,7 +134,7 @@ func (h Handler) processTransferMsg(msg *transfer.MsgTransfer, block *tm.Block) 
 		Packet:          packet,
 		ProofCommitment: block.Hash().Bytes(),
 		ProofHeight: client.Height{
-			RevisionNumber: h.EndpointA.RevisionNumber,
+			RevisionNumber: h.SourceChain.RevisionNumber,
 			RevisionHeight: uint64(block.Height),
 		},
 		Signer: "",
@@ -135,8 +156,8 @@ func (h *Handler) Commit(blockID []byte, commit *tmproto.SignedHeader, valSet *t
 	header := &ibcclient.Header{
 		SignedHeader:      commit,
 		ValidatorSet:      valSet,
-		TrustedHeight:     h.EndpointA.LastTrustedHeight,
-		TrustedValidators: h.EndpointB.LastTrustedValidators,
+		TrustedHeight:     h.ClientState.LastTrustedHeight,
+		TrustedValidators: h.ClientState.LastTrustedValidators,
 	}
 
 	// broadcast pendingTxs to counterparty Mempool
@@ -148,7 +169,7 @@ func (h *Handler) Commit(blockID []byte, commit *tmproto.SignedHeader, valSet *t
 func (h Handler) BroadcastPackets(header *ibcclient.Header, msgs []sdk.Msg) error {
 	mempool := h.counterpartyMempool
 
-	updateMsg, err := client.NewMsgUpdateClient(h.EndpointB.ClientID, header, "")
+	updateMsg, err := client.NewMsgUpdateClient(h.CounterpartyChain.ClientID, header, "")
 	if err != nil {
 		return err
 	}
@@ -156,7 +177,7 @@ func (h Handler) BroadcastPackets(header *ibcclient.Header, msgs []sdk.Msg) erro
 	// put updateMsg at the front of the array
 	msgs = append([]sdk.Msg{updateMsg}, msgs...)
 
-	signedTx, err := h.Sign(msgs)
+	signedTx, err := h.accountant.PrepareAndSign(msgs, h.SourceChain.ChainID)
 	if err != nil {
 		return err
 	}
@@ -171,19 +192,6 @@ func (h Handler) BroadcastPackets(header *ibcclient.Header, msgs []sdk.Msg) erro
 	}
 
 	return nil
-}
-
-// TODO: When processing a block we should cache the transactions that will update
-// the part of the ibc state that is important for the relayer to function. When
-// this function is called we should then commit the cached state.
-func (h *Handler) UpdateIBCState(blockID []byte) {
-
-}
-
-// Sign takes a transaction and signs it appending the signature
-// to the transaction.
-func (h Handler) Sign(tx tx.Tx) (tx.Tx, error) {
-	return tx, nil
 }
 
 // PrepareTx marshals a sdk transaction into bytes

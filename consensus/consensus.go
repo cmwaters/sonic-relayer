@@ -22,6 +22,7 @@ const (
 	broadcastInterval = 100 * time.Millisecond
 )
 
+//go:generate mockery --case underscore --name Provider|Handler
 type Provider interface {
 	ValidatorSet(ctx context.Context, height *int64) (*tm.ValidatorSet, int64, error)
 }
@@ -39,11 +40,11 @@ type Service struct {
 	p2p.BaseReactor
 
 	chainID  string
-	height   int64
 	ibc      Handler
 	provider Provider
 
 	mtx               sync.Mutex
+	height            int64
 	proposals         map[int32]tm.BlockID
 	partSets          map[string]*tm.PartSet
 	proposedBlocks    map[string]*tm.Block
@@ -142,18 +143,18 @@ func (s Service) BroadcastRoutine(ctx context.Context) {
 func (s *Service) Receive(chID byte, src p2p.Peer, msgBytes []byte) {
 	pb := &csproto.Message{}
 	if err := proto.Unmarshal(msgBytes, pb); err != nil {
-		log.Error().Err(err)
+		log.Error().Err(err).Msg("unmarshalling consensus message")
 		return
 	}
 
 	msg, err := cs.MsgFromProto(pb)
 	if err != nil {
-		log.Error().Err(err)
+		log.Error().Err(err).Msg("converting message from proto")
 		return
 	}
 
 	if err := msg.ValidateBasic(); err != nil {
-		log.Error().Err(err)
+		log.Error().Err(err).Msg("invalid consensus message")
 		return
 	}
 
