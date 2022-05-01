@@ -9,6 +9,7 @@ import (
 // client and connections. It contains client, connection, and channel
 // configuration parameters.
 type Endpoint struct {
+	ChainID      string
 	ClientID     string
 	ConnectionID string
 	Channel      Channel
@@ -18,11 +19,9 @@ type Endpoint struct {
 	RevisionNumber uint64
 
 	// LastTrustedHeight is the last known trusted height
-	LastTrustedHeight client.Height
-
+	LastTrustedHeight     client.Height
 	LastTrustedValidators *tmproto.ValidatorSet
 
-	// NextPacketSequence is the packet sequence for the next outbound packet
 	NextPacketSeq uint64
 }
 
@@ -30,12 +29,4 @@ type Channel struct {
 	ChannelID string
 	PortID    string
 	Version   string
-}
-
-func (e Endpoint) GetClientID() string {
-	return e.ClientID
-}
-
-func (e Endpoint) GetRevisionNumber() uint64 {
-	return e.RevisionNumber
 }

@@ -1,8 +1,11 @@
 package ibc
 
 import (
+	"fmt"
+
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/tx"
-	sdk "github.com/cosmos/cosmos-sdk/types/tx"
+
 	transfer "github.com/cosmos/ibc-go/v3/modules/apps/transfer/types"
 	client "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
 	channel "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
@@ -21,38 +24,31 @@ import (
 type Handler struct {
 	// pendingTxs is a queue of outbound transactions
 	// transactions will be ready to submit to the counterparty Mempool once 2/3 votes have been tallied
-	pendingTxs []sdk.Tx
-
-	// The keyring is used to sign outbound transactions before
-	// they are routed to the respective mempool
-	// TODO: This could be abstracted out as a separate component
-	//signer keyring.Keyring
+	pendingTxs map[string][]sdk.Msg
 
 	// the IBC handler has write access to the counterparty Mempool
 	counterpartyMempool *router.Mempool
 
-	// TODO: remove write access for EndpointB in future
 	// Each handler has write & read access to the Endpoint of the chain
 	EndpointA Endpoint
 	EndpointB Endpoint
 }
 
-func NewHandler(counterpartyMempool *router.Mempool) *Handler {
+func NewHandler(counterpartyMempool *router.Mempool, endpointA, endpointB Endpoint) *Handler {
 	return &Handler{
-		//signer:              signer,
 		counterpartyMempool: counterpartyMempool,
-		pendingTxs:          []sdk.Tx{},
-		// TODO add necessary information for IBC
+		pendingTxs:          make(map[string][]sdk.Msg),
+		EndpointA:           endpointA,
+		EndpointB:           endpointB,
 	}
 }
 
 // Process takes a proposed block and scans for IBC messages,
 // predicting the modules state transition if the block were to
-// be committed and producing the packets needed to be sent
-// to the respective chains
+// be committed and producing the transactions that will be passed to the counterparty chains Mempool
 func (h Handler) Process(block *tm.Block) error {
-	// var outboundTxs []sdk.Tx
-	// proofCommitment := block.Hash().Bytes()
+	var outboundMsgs []sdk.Msg
+	proofCommitment := block.Hash().Bytes()
 
 	// decode raw tx into sdk.Msg
 	for _, rawTx := range block.Data.Txs {
@@ -65,21 +61,31 @@ func (h Handler) Process(block *tm.Block) error {
 		for _, msg := range msgs {
 			switch m := msg.(type) {
 			case *transfer.MsgTransfer:
-				return h.processTransferMsg(m, block)
+				msg, err := h.processTransferMsg(m, block)
+				if err != nil {
+					return err
+				}
+
+				outboundMsgs = append(outboundMsgs, msg)
+				return nil
 			case *client.MsgUpdateClient:
-				// return h.processUpdateClientMsg()
+				//return h.processUpdateClientMsg()
 			default:
 				return nil
 			}
 		}
 	}
 
+	h.pendingTxs[string(proofCommitment)] = outboundMsgs
 	return nil
 }
 
-// processTransferMsg simulates the execution of a transfer message, caching the state
-// changes to IBC and producing the packet that needs to be sent to another chain
-func (h Handler) processTransferMsg(msg *transfer.MsgTransfer, block *tm.Block) error {
+// processTransferMsg builds and returns the correspending msgOnRecvPacket for a given msgTransfer
+func (h Handler) processTransferMsg(msg *transfer.MsgTransfer, block *tm.Block) (*channel.MsgRecvPacket, error) {
+	// we want to just relayer between two chains for the time being (channels are decided at config level)
+	if msg.SourceChannel != h.EndpointA.Channel.ChannelID {
+		return &channel.MsgRecvPacket{}, ErrChannelNotConfigured
+	}
 
 	// create MsgOnRecvPacket
 	fullDenomPath := msg.Token.Denom
@@ -88,6 +94,9 @@ func (h Handler) processTransferMsg(msg *transfer.MsgTransfer, block *tm.Block) 
 	)
 
 	nextSeqSend := h.EndpointA.NextPacketSeq
+
+	// incremement the send sequence for the next packet
+	h.EndpointA.NextPacketSeq++
 
 	packet := channel.NewPacket(
 		packetData.GetBytes(),
@@ -100,9 +109,9 @@ func (h Handler) processTransferMsg(msg *transfer.MsgTransfer, block *tm.Block) 
 		msg.TimeoutTimestamp,
 	)
 
-	_ = &channel.MsgRecvPacket{
+	recvMsg := &channel.MsgRecvPacket{
 		Packet:          packet,
-		ProofCommitment: block.Hash(),
+		ProofCommitment: block.Hash().Bytes(),
 		ProofHeight: client.Height{
 			RevisionNumber: h.EndpointA.RevisionNumber,
 			RevisionHeight: uint64(block.Height),
@@ -110,90 +119,58 @@ func (h Handler) processTransferMsg(msg *transfer.MsgTransfer, block *tm.Block) 
 		Signer: "",
 	}
 
-	// TODO: build and sign the multi msg tx
-	// create helper fn
-	proposedTx := tx.Tx{}
-
-	// still decided where I'll do this
-	// h.cacheStateChanges()
-
-	h.pendingTxs = append(h.pendingTxs, proposedTx)
-
-	return nil
+	return recvMsg, nil
 }
 
 // Commit is called the moment a block is committed. The handler will
 // retrieve the cached outbound IBC messages, generate the corresponding
 // proof for that height, bundle this into a sdk transaction, sign it
-// marshal it into bytes and deliver it to the router to be submitted
-// on the destination chain. It will then make any updates to the handlers
-// own state if necessary. This should never error.
+// marshal it into bytes and deliver it to the counterparty chains Mempool
 func (h *Handler) Commit(blockID []byte, commit *tmproto.SignedHeader, valSet *tmproto.ValidatorSet) {
-	/*
-		outboundTxs, ok := h.pendingTxs[string(blockID)]
-		if !ok {
-			panic(fmt.Sprintf("unexpected block committed (hash: %X)", blockID))
-		}
+	outboundTxs, ok := h.pendingTxs[string(blockID)]
+	if !ok {
+		panic(fmt.Sprintf("unexpected block committed (hash: %X)", blockID))
+	}
 
-		header := &ibcclient.Header{
-			SignedHeader:      commit,
-			ValidatorSet:      valSet,
-			TrustedHeight:     h.ibcState.TrustedHeight,
-			TrustedValidators: h.ibcState.TrustedValidators,
-		}
+	header := &ibcclient.Header{
+		SignedHeader:      commit,
+		ValidatorSet:      valSet,
+		TrustedHeight:     h.EndpointA.LastTrustedHeight,
+		TrustedValidators: h.EndpointB.LastTrustedValidators,
+	}
 
-		// Get all the pending outbound packets from that block and broadcast them
-		// to the nodes of that network
-		for chainID, tx := range outboundTxs {
-			if err := h.BroadcastPackets(header, chainID, tx); err != nil {
-			}
-		}
-
-		// Update the IBC state of this specific chain from the pending transactions
-		h.UpdateIBCState(blockID)
-		Order     channeltypes.Order
-	*/
+	// broadcast pendingTxs to counterparty Mempool
+	if err := h.BroadcastPackets(header, outboundTxs); err != nil {
+		return
+	}
 }
 
-func (h Handler) BroadcastPackets(header *ibcclient.Header, chainID string, tx sdk.Tx) error {
-	// TODO: refactor to use Mempool directly
-	/*
-				counterpartyState, ok := h.counterpartyStates[chainID]
-				if !ok {
-					panic(fmt.Sprintf("unknown ibc state for %s", chainID))
-				}
+func (h Handler) BroadcastPackets(header *ibcclient.Header, msgs []sdk.Msg) error {
+	mempool := h.counterpartyMempool
 
-				updateMsg, err := client.NewMsgUpdateClient(counterpartyState.GetClientID(), header, "")
-				if err != nil {
-					return err
-				}
+	updateMsg, err := client.NewMsgUpdateClient(h.EndpointB.ClientID, header, "")
+	if err != nil {
+		return err
+	}
 
-				updateAnyMsg, err := codec.NewAnyWithValue(updateMsg)
-				if err != nil {
-					return err
-				}
+	// put updateMsg at the front of the array
+	msgs = append([]sdk.Msg{updateMsg}, msgs...)
 
-				// add the client proof to the front of the messages.
-				// This should execute first
-				tx.Body.Messages = append([]*codec.Any{updateAnyMsg}, tx.Body.Messages...)
+	signedTx, err := h.Sign(msgs)
+	if err != nil {
+		return err
+	}
 
-				signedTx, err := h.Sign(tx)
-				if err != nil {
-					return err
-				}
+	completedTx, err := h.PrepareTx(signedTx)
+	if err != nil {
+		return err
+	}
 
-				completedTx, err := h.PrepareTx(signedTx)
-				if err != nil {
-					return err
-				}
+	if err := mempool.BroadcastTx(completedTx); err != nil {
+		return err
+	}
 
-		<<<<<<< HEAD
-				return h.txRouter.Send(chainID, []tm.Tx{completedTx})
-	*/
 	return nil
-
-	// broadcast the tx to the counterpary mempool
-	//return h.counterpartyMempool.BroadcastTx(completedTx)
 }
 
 // TODO: When processing a block we should cache the transactions that will update
@@ -205,30 +182,32 @@ func (h *Handler) UpdateIBCState(blockID []byte) {
 
 // Sign takes a transaction and signs it appending the signature
 // to the transaction.
-func (h Handler) Sign(tx sdk.Tx) (sdk.Tx, error) {
+func (h Handler) Sign(tx tx.Tx) (tx.Tx, error) {
 	return tx, nil
 }
 
 // PrepareTx marshals a sdk transaction into bytes
 // so it can be routed to the respective mempool
-func (h Handler) PrepareTx(tx sdk.Tx) (tm.Tx, error) {
-	bodyBytes, err := tx.Body.Marshal()
+func (h Handler) PrepareTx(t tx.Tx) (tm.Tx, error) {
+	bodyBytes, err := t.Body.Marshal()
 	if err != nil {
 		return nil, err
 	}
-	authInfoBytes, err := tx.AuthInfo.Marshal()
+	authInfoBytes, err := t.AuthInfo.Marshal()
 	if err != nil {
 		return nil, err
 	}
 
-	raw := &sdk.TxRaw{
+	raw := &tx.TxRaw{
 		BodyBytes:     bodyBytes,
 		AuthInfoBytes: authInfoBytes,
-		Signatures:    tx.Signatures,
+		Signatures:    t.Signatures,
 	}
+
 	txBytes, err := proto.Marshal(raw)
 	if err != nil {
 		return nil, err
 	}
+
 	return txBytes, nil
 }
