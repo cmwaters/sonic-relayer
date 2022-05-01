@@ -33,7 +33,7 @@ func (suite *HandlerTestSuite) TestIBCHandler() {
 
 			tc.malleate()
 			counterpartyMempool := router.NewMempool()
-			ibcHandler := handler.NewHandler(counterpartyMempool)
+			ibcHandler := handler.NewHandler(counterpartyMempool, mockAccountant("test-chain"))
 			err := ibcHandler.Process(mockTxs)
 
 			if tc.expPass {
