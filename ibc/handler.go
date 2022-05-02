@@ -12,7 +12,7 @@ import (
 
 	ibcclient "github.com/cosmos/ibc-go/v3/modules/light-clients/07-tendermint/types"
 	"github.com/gogo/protobuf/proto"
-	broadcast "github.com/plural-labs/sonic-relayer/tx"
+	transaction "github.com/plural-labs/sonic-relayer/tx"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	tm "github.com/tendermint/tendermint/types"
 )
@@ -24,6 +24,7 @@ import (
 type Handler struct {
 	// pendingTxs is a queue of outbound transactions
 	// transactions will be ready to submit to the counterparty Mempool once 2/3 votes have been tallied
+	// The slice is mapped to a block ID that has been proposed during a height in consensus
 	pendingTxs map[string][]sdk.Msg
 
 	// The keyring is used to sign outbound transactions before
@@ -31,18 +32,17 @@ type Handler struct {
 	accountant *Accountant
 
 	// the IBC handler has write access to the counterparty Mempool
-	counterpartyMempool *broadcast.Mempool
+	counterpartyMempool *transaction.Mempool
 
 	// information on the two endpoints
 	sourceChain       Endpoint
 	counterpartyChain Endpoint
 
-	//
 	clientState   ClientState
 	nextPacketSeq uint64
 }
 
-func NewHandler(counterpartyMempool *broadcast.Mempool, accountant *Accountant, sourceEndpoint, destinationEndpoint Endpoint) *Handler {
+func NewHandler(counterpartyMempool *transaction.Mempool, accountant *Accountant, sourceEndpoint, destinationEndpoint Endpoint) *Handler {
 	return &Handler{
 		counterpartyMempool: counterpartyMempool,
 		pendingTxs:          make(map[string][]sdk.Msg),
