@@ -42,8 +42,11 @@ func Relay(ctx context.Context, cfg *Config) error {
 		return err
 	}
 
-	ibcHandlerA := ibc.NewHandler(mempoolB, accountant)
-	ibcHandlerB := ibc.NewHandler(mempoolA, accountant)
+	endpointA := ibc.Endpoint{}
+	endpointB := ibc.Endpoint{}
+
+	ibcHandlerA := ibc.NewHandler(mempoolB, accountant, endpointA, endpointB)
+	ibcHandlerB := ibc.NewHandler(mempoolA, accountant, endpointA, endpointB)
 
 	// get the latest two validator sets and heights
 	nextValSetA, heightA, err := providerA.ValidatorSet(ctx, nil)
