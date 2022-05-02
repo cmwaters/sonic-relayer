@@ -6,7 +6,7 @@ import (
 	"github.com/plural-labs/sonic-relayer/consensus"
 	"github.com/plural-labs/sonic-relayer/ibc"
 	"github.com/plural-labs/sonic-relayer/provider"
-	"github.com/plural-labs/sonic-relayer/router"
+	"github.com/plural-labs/sonic-relayer/tx"
 )
 
 // Relay is the top level function taking a context and config and
@@ -24,8 +24,8 @@ func Relay(ctx context.Context, cfg *Config) error {
 	providerA := provider.NewRPCClient([]string{cfg.ChainA.RPC})
 	providerB := provider.NewRPCClient([]string{cfg.ChainB.RPC})
 
-	mempoolA := router.NewMempool()
-	mempoolB := router.NewMempool()
+	mempoolA := tx.NewMempool()
+	mempoolB := tx.NewMempool()
 
 	ibcHandlerA := ibc.NewHandler(mempoolB)
 	ibcHandlerB := ibc.NewHandler(mempoolA)

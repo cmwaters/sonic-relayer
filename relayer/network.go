@@ -13,7 +13,7 @@ import (
 	"github.com/tendermint/tendermint/version"
 
 	"github.com/plural-labs/sonic-relayer/consensus"
-	"github.com/plural-labs/sonic-relayer/router"
+	"github.com/plural-labs/sonic-relayer/tx"
 )
 
 func runNetwork(
@@ -21,7 +21,7 @@ func runNetwork(
 	cfg *Config,
 	chain ChainConfig,
 	consensus *consensus.Service,
-	mempool *router.Mempool,
+	mempool *tx.Mempool,
 ) error {
 	chainDir := filepath.Join(cfg.RootDir, chain.Name)
 	addressBookFile := filepath.Join(chainDir, "peers.json")
