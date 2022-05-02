@@ -21,9 +21,16 @@ type ChainConfig struct {
 	ID              string `toml:"id"`
 	ListenAddress   string `toml:"listen_address"`
 	ExternalAddress string `toml:"external_address"`
+	// comma separated list of tendermint peers
+	Peers string `toml:"peers"`
 	// This is used to query for information on other nodes
-	RPC        string `toml:"rpc"`
-	AppVersion uint64 `toml:"app_version"`
+	RPC            string `toml:"rpc"`
+	AppVersion     uint64 `toml:"app_version"`
+	ClientID       string `toml:"client_id"`
+	ConnectionID   string `toml:"connection_id"`
+	ChannelID      string `toml:"channel_id"`
+	PortID         string `toml:"port_id"`
+	ChannelVersion string `toml:"channel_version"`
 }
 
 func LoadConfig(file string) (Config, error) {

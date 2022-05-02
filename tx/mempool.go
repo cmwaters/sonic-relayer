@@ -1,8 +1,9 @@
-package router
+package tx
 
 import (
 	"sync"
 
+	"github.com/rs/zerolog/log"
 	"github.com/tendermint/tendermint/mempool"
 	"github.com/tendermint/tendermint/p2p"
 	proto "github.com/tendermint/tendermint/proto/tendermint/mempool"
@@ -23,9 +24,11 @@ type Mempool struct {
 }
 
 func NewMempool() *Mempool {
-	return &Mempool{
+	mempool := &Mempool{
 		peerList: make(map[string]p2p.Peer),
 	}
+	mempool.BaseReactor = *p2p.NewBaseReactor("RelayerMempool", mempool)
+	return mempool
 }
 
 // AddPeer implements the Reactor interface
@@ -52,7 +55,7 @@ func (m *Mempool) Receive(chID byte, src p2p.Peer, msgBytes []byte) {}
 // the same transaction multiple times.
 // NOTE: we intentionally only send one transaction at a time. Tendermint
 // has temporarily disabled batch broadcasts.
-func (m *Mempool) BroadcastTx(tx []byte) error {
+func (m *Mempool) BroadcastTx(tx []byte) {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
 	msg := proto.Message{
@@ -67,7 +70,10 @@ func (m *Mempool) BroadcastTx(tx []byte) error {
 	}
 
 	for _, peer := range m.peerList {
-		_ = peer.Send(mempool.MempoolChannel, bz)
+		sent := peer.Send(mempool.MempoolChannel, bz)
+		if !sent {
+			log.Error().Str("peer", string(peer.ID())).Msg("peer buffer full - transaction not sent")
+		}
 	}
-	return nil
+	log.Debug().Msg("broadcasted tx to all peers")
 }

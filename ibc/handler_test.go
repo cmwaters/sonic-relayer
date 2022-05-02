@@ -3,9 +3,9 @@ package ibc_test
 import (
 	"github.com/stretchr/testify/suite"
 
-	handler "github.com/plural-labs/sonic-relayer/ibc"
-	"github.com/plural-labs/sonic-relayer/router"
+	"github.com/plural-labs/sonic-relayer/ibc"
 	mocks "github.com/plural-labs/sonic-relayer/testing/mocks"
+	"github.com/plural-labs/sonic-relayer/tx"
 )
 
 type HandlerTestSuite struct {
@@ -30,10 +30,12 @@ func (suite *HandlerTestSuite) TestIBCHandler() {
 
 		suite.Run(tc.name, func() {
 			mockTxs := mocks.BuildMockBlock()
+			sourceEndpoint := &ibc.State{}
+			destEndpoint := &ibc.State{}
 
 			tc.malleate()
-			counterpartyMempool := router.NewMempool()
-			ibcHandler := handler.NewHandler(counterpartyMempool, mockAccountant("test-chain"))
+			counterpartyMempool := tx.NewMempool()
+			ibcHandler := ibc.NewHandler(counterpartyMempool, mockAccountant("test-chain"), sourceEndpoint, destEndpoint)
 			err := ibcHandler.Process(mockTxs)
 
 			if tc.expPass {
