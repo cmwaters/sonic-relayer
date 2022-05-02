@@ -14,6 +14,11 @@ listen_address = "0.0.0.0:26657"
 external_address = "0.0.0.0:26657"
 rpc = "" # to be filled out
 app_version = 0
+client_id = "client-0"
+connection_id = "connection-0"
+channel_id = "channel-0"
+port_id = "transfer"
+channel_version = "ics20-1"
 
 [chain_b]
 
@@ -23,3 +28,8 @@ listen_address = "0.0.0.0:36657"
 external_address = "0.0.0.0:36657"
 rpc = "" # to be filled out
 app_version = 0
+client_id = "client-0"
+connection_id = "connection-0"
+channel_id = "channel-0"
+port_id = "transfer"
+channel_version = "ics20-1"
