@@ -13,10 +13,6 @@ type Endpoint struct {
 	ClientID     string
 	ConnectionID string
 	Channel      Channel
-
-	// RevisionNumber is used as part of the height in packets.
-	// It usually doesn't change unless a hard fork happens
-	RevisionNumber uint64
 }
 
 type ClientState struct {

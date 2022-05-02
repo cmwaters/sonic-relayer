@@ -33,19 +33,21 @@ type Handler struct {
 	// the IBC handler has write access to the counterparty Mempool
 	counterpartyMempool *broadcast.Mempool
 
-	SourceChain       Endpoint
-	CounterpartyChain Endpoint
+	// information on the two endpoints
+	sourceChain       Endpoint
+	counterpartyChain Endpoint
 
-	ClientState   ClientState
-	NextPacketSeq uint64
+	//
+	clientState   ClientState
+	nextPacketSeq uint64
 }
 
-func NewHandler(counterpartyMempool *broadcast.Mempool, accountant *Accountant, endpointA, endpointB Endpoint) *Handler {
+func NewHandler(counterpartyMempool *broadcast.Mempool, accountant *Accountant, sourceEndpoint, destinationEndpoint Endpoint) *Handler {
 	return &Handler{
 		counterpartyMempool: counterpartyMempool,
 		pendingTxs:          make(map[string][]sdk.Msg),
-		SourceChain:         endpointA,
-		CounterpartyChain:   endpointB,
+		sourceChain:         sourceEndpoint,
+		counterpartyChain:   destinationEndpoint,
 		accountant:          accountant,
 	}
 }
@@ -104,8 +106,8 @@ func (h Handler) processOnRecvPacketMsg(msg *channel.MsgRecvPacket, block *tm.Bl
 // processTransferMsg builds and returns the correspending msgOnRecvPacket for a given msgTransfer
 func (h Handler) processTransferMsg(msg *transfer.MsgTransfer, block *tm.Block) (*channel.MsgRecvPacket, error) {
 	// we want to just relayer between two chains for the time being (channels are decided at config level)
-	if msg.SourceChannel != h.SourceChain.Channel.ChannelID {
-		return &channel.MsgRecvPacket{}, ErrChannelNotConfigured
+	if msg.SourceChannel != h.sourceChain.Channel.ChannelID {
+		return nil, ErrChannelNotConfigured
 	}
 
 	// create MsgOnRecvPacket
@@ -114,30 +116,35 @@ func (h Handler) processTransferMsg(msg *transfer.MsgTransfer, block *tm.Block) 
 		fullDenomPath, msg.Token.Amount.String(), msg.Sender, msg.Receiver,
 	)
 
-	nextSeqSend := h.NextPacketSeq
+	nextSeqSend := h.nextPacketSeq
 
 	// incremement the send sequence for the next packet
-	h.NextPacketSeq++
+	h.nextPacketSeq++
 
 	packet := channel.NewPacket(
 		packetData.GetBytes(),
 		nextSeqSend,
-		h.SourceChain.Channel.PortID,
-		h.SourceChain.Channel.ChannelID,
-		h.CounterpartyChain.Channel.PortID,
-		h.CounterpartyChain.Channel.ChannelID,
+		h.sourceChain.Channel.PortID,
+		h.sourceChain.Channel.ChannelID,
+		h.counterpartyChain.Channel.PortID,
+		h.counterpartyChain.Channel.ChannelID,
 		msg.TimeoutHeight,
 		msg.TimeoutTimestamp,
 	)
+
+	address, err := h.accountant.HumanAddress(h.counterpartyChain.ChainID)
+	if err != nil {
+		return nil, err
+	}
 
 	recvMsg := &channel.MsgRecvPacket{
 		Packet:          packet,
 		ProofCommitment: block.Hash().Bytes(),
 		ProofHeight: client.Height{
-			RevisionNumber: h.SourceChain.RevisionNumber,
+			RevisionNumber: h.clientState.LastTrustedHeight.RevisionNumber,
 			RevisionHeight: uint64(block.Height),
 		},
-		Signer: "",
+		Signer: address,
 	}
 
 	return recvMsg, nil
@@ -156,8 +163,8 @@ func (h *Handler) Commit(blockID []byte, commit *tmproto.SignedHeader, valSet *t
 	header := &ibcclient.Header{
 		SignedHeader:      commit,
 		ValidatorSet:      valSet,
-		TrustedHeight:     h.ClientState.LastTrustedHeight,
-		TrustedValidators: h.ClientState.LastTrustedValidators,
+		TrustedHeight:     h.clientState.LastTrustedHeight,
+		TrustedValidators: h.clientState.LastTrustedValidators,
 	}
 
 	// broadcast pendingTxs to counterparty Mempool
@@ -169,7 +176,13 @@ func (h *Handler) Commit(blockID []byte, commit *tmproto.SignedHeader, valSet *t
 func (h Handler) BroadcastPackets(header *ibcclient.Header, msgs []sdk.Msg) error {
 	mempool := h.counterpartyMempool
 
-	updateMsg, err := client.NewMsgUpdateClient(h.CounterpartyChain.ClientID, header, "")
+	// retrieve the relayers account address on the destination chain
+	address, err := h.accountant.HumanAddress(h.counterpartyChain.ChainID)
+	if err != nil {
+		return err
+	}
+
+	updateMsg, err := client.NewMsgUpdateClient(h.counterpartyChain.ClientID, header, address)
 	if err != nil {
 		return err
 	}
@@ -177,7 +190,7 @@ func (h Handler) BroadcastPackets(header *ibcclient.Header, msgs []sdk.Msg) erro
 	// put updateMsg at the front of the array
 	msgs = append([]sdk.Msg{updateMsg}, msgs...)
 
-	signedTx, err := h.accountant.PrepareAndSign(msgs, h.SourceChain.ChainID)
+	signedTx, err := h.accountant.PrepareAndSign(msgs, h.sourceChain.ChainID)
 	if err != nil {
 		return err
 	}
