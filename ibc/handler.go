@@ -6,7 +6,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types/tx"
 	ibcclient "github.com/cosmos/ibc-go/v3/modules/light-clients/07-tendermint/types"
 	"github.com/gogo/protobuf/proto"
-	"github.com/plural-labs/sonic-relayer/router"
+	"github.com/plural-labs/sonic-relayer/tx"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	tm "github.com/tendermint/tendermint/types"
 )
@@ -25,7 +25,7 @@ type Handler struct {
 	accountant *Accountant
 
 	// the IBC handler has write access to the counterparty Mempool
-	counterpartyMempool *router.Mempool
+	counterpartyMempool *tx.Mempool
 
 	// Each handler has write access to the Endpoint of the chain
 	// it is receiving blocks on and read access to the counterparty chains Endpoint
@@ -33,7 +33,7 @@ type Handler struct {
 	EndpointB CounterpartyReader
 }
 
-func NewHandler(counterpartyMempool *router.Mempool, accountant *Accountant) *Handler {
+func NewHandler(counterpartyMempool *tx.Mempool, accountant *Accountant) *Handler {
 	return &Handler{
 		//signer:              signer,
 		counterpartyMempool: counterpartyMempool,
