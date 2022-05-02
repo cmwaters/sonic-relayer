@@ -14,6 +14,8 @@ Install the `simd` binary from the [`ibc-go`](https://github.com/cosmos/ibc-go) 
 
 ```bash
 git clone git@github.com:cosmos/ibc-go.git && cd ibc-go
+// hermes is used to create clients/connection/channel for manual test
+cargo install --version 0.13.0 ibc-relayer-cli --bin hermes --locked
 
 make install
 
