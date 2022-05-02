@@ -30,8 +30,8 @@ func (suite *HandlerTestSuite) TestIBCHandler() {
 
 		suite.Run(tc.name, func() {
 			mockTxs := mocks.BuildMockBlock()
-			sourceEndpoint := ibc.Endpoint{}
-			destEndpoint := ibc.Endpoint{}
+			sourceEndpoint := &ibc.State{}
+			destEndpoint := &ibc.State{}
 
 			tc.malleate()
 			counterpartyMempool := tx.NewMempool()
