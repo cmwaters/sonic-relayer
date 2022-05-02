@@ -10,7 +10,6 @@
 - Install [Hermes](https://hermes.informal.systems/installation.html)
 
 The following directory contains a basic executable script which handles creation of clients, connections and channels in order to facilitate packet relaying between distributed ledgers using the IBC protocol.
-This serves as a basis for demonstration of interchain accounts e2e functionality validation.
 
 ## Usage
 
