@@ -2,6 +2,7 @@ package relayer
 
 import (
 	"context"
+	"errors"
 
 	"github.com/plural-labs/sonic-relayer/consensus"
 	"github.com/plural-labs/sonic-relayer/ibc"
@@ -14,7 +15,7 @@ import (
 func Relay(ctx context.Context, cfg *Config) error {
 	var err error
 
-	_, err = NewSigner(cfg)
+	signer, err := NewSigner(cfg)
 	if err != nil {
 		return err
 	}
@@ -27,8 +28,22 @@ func Relay(ctx context.Context, cfg *Config) error {
 	mempoolA := tx.NewMempool()
 	mempoolB := tx.NewMempool()
 
-	ibcHandlerA := ibc.NewHandler(mempoolB)
-	ibcHandlerB := ibc.NewHandler(mempoolA)
+	infos, err := signer.List()
+	if err != nil {
+		return err
+	}
+	if len(infos) == 0 {
+		return errors.New("no keys present in keyring")
+	}
+	address := infos[0].GetAddress()
+
+	accountant, err := ibc.NewAccountant(signer, address, nil)
+	if err != nil {
+		return err
+	}
+
+	ibcHandlerA := ibc.NewHandler(mempoolB, accountant)
+	ibcHandlerB := ibc.NewHandler(mempoolA, accountant)
 
 	// get the latest two validator sets and heights
 	nextValSetA, heightA, err := providerA.ValidatorSet(ctx, nil)
