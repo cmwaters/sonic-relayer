@@ -22,8 +22,7 @@ type Handler struct {
 
 	// The keyring is used to sign outbound transactions before
 	// they are routed to the respective mempool
-	// TODO: This could be abstracted out as a separate component
-	//signer keyring.Keyring
+	accountant *Accountant
 
 	// the IBC handler has write access to the counterparty Mempool
 	counterpartyMempool *tx.Mempool
@@ -34,11 +33,12 @@ type Handler struct {
 	EndpointB CounterpartyReader
 }
 
-func NewHandler(counterpartyMempool *tx.Mempool) *Handler {
+func NewHandler(counterpartyMempool *tx.Mempool, accountant *Accountant) *Handler {
 	return &Handler{
 		//signer:              signer,
 		counterpartyMempool: counterpartyMempool,
 		pendingTxs:          []sdk.Tx{},
+		accountant:          accountant,
 		// TODO add necessary information for IBC
 	}
 }
