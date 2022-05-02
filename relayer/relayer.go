@@ -42,8 +42,8 @@ func Relay(ctx context.Context, cfg *Config) error {
 		return err
 	}
 
-	endpointA := ibc.Endpoint{}
-	endpointB := ibc.Endpoint{}
+	endpointA := &ibc.State{}
+	endpointB := &ibc.State{}
 
 	ibcHandlerA := ibc.NewHandler(mempoolB, accountant, endpointA, endpointB)
 	ibcHandlerB := ibc.NewHandler(mempoolA, accountant, endpointA, endpointB)
