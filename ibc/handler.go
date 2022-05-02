@@ -12,7 +12,7 @@ import (
 
 	ibcclient "github.com/cosmos/ibc-go/v3/modules/light-clients/07-tendermint/types"
 	"github.com/gogo/protobuf/proto"
-	"github.com/plural-labs/sonic-relayer/router"
+	broadcast "github.com/plural-labs/sonic-relayer/tx"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	tm "github.com/tendermint/tendermint/types"
 )
@@ -31,7 +31,7 @@ type Handler struct {
 	accountant *Accountant
 
 	// the IBC handler has write access to the counterparty Mempool
-	counterpartyMempool *router.Mempool
+	counterpartyMempool *broadcast.Mempool
 
 	SourceChain       Endpoint
 	CounterpartyChain Endpoint
@@ -40,7 +40,7 @@ type Handler struct {
 	NextPacketSeq uint64
 }
 
-func NewHandler(counterpartyMempool *router.Mempool, accountant *Accountant, endpointA, endpointB Endpoint) *Handler {
+func NewHandler(counterpartyMempool *broadcast.Mempool, accountant *Accountant, endpointA, endpointB Endpoint) *Handler {
 	return &Handler{
 		counterpartyMempool: counterpartyMempool,
 		pendingTxs:          make(map[string][]sdk.Msg),
@@ -187,9 +187,8 @@ func (h Handler) BroadcastPackets(header *ibcclient.Header, msgs []sdk.Msg) erro
 		return err
 	}
 
-	if err := mempool.BroadcastTx(completedTx); err != nil {
-		return err
-	}
+	// broadcast tx
+	mempool.BroadcastTx(completedTx)
 
 	return nil
 }
