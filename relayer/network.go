@@ -2,10 +2,13 @@ package relayer
 
 import (
 	"context"
+	"errors"
+	"os"
 	"path/filepath"
 
 	"github.com/tendermint/tendermint/config"
 	cs "github.com/tendermint/tendermint/consensus"
+	"github.com/tendermint/tendermint/libs/log"
 	mpl "github.com/tendermint/tendermint/mempool"
 	"github.com/tendermint/tendermint/p2p"
 	"github.com/tendermint/tendermint/p2p/conn"
@@ -23,7 +26,15 @@ func runNetwork(
 	consensus *consensus.Service,
 	mempool *tx.Mempool,
 ) error {
-	chainDir := filepath.Join(cfg.RootDir, chain.Name)
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	chainDir := filepath.Join(home, cfg.RootDir, chain.Name)
+	_, err = os.Stat(chainDir)
+	if errors.Is(err, os.ErrNotExist) {
+		os.MkdirAll(chainDir, 0777)
+	}
 	addressBookFile := filepath.Join(chainDir, "peers.json")
 	nodeKeyFile := filepath.Join(chainDir, "node.json")
 
@@ -54,15 +65,41 @@ func runNetwork(
 	}, transport)
 	network.SetNodeInfo(nodeInfo)
 	network.SetNodeKey(nodeKey)
+	addr, err := p2p.NewNetAddressString(p2p.IDAddressString(nodeKey.ID(), chain.ListenAddress))
+	if err != nil {
+		return err
+	}
+
 	addrBook := pex.NewAddrBook(addressBookFile, false)
+	addrBook.AddOurAddress(addr)
+
+	netAddress, err := p2p.NewNetAddressString(chain.Peers)
+	if err != nil {
+		return err
+	}
+	if err := addrBook.AddAddress(netAddress, netAddress); err != nil {
+		return err
+	}
 	network.SetAddrBook(addrBook)
+
+	logger := log.NewTMLogger(log.NewSyncWriter(os.Stdout))
+	consensus.SetLogger(logger)
+	addrBook.SetLogger(logger)
+	mempool.SetLogger(logger)
+	network.SetLogger(logger)
 
 	network.AddReactor("CONSENSUS", consensus)
 	network.AddReactor("MEMPOOL", mempool)
+	network.AddPersistentPeers([]string{chain.Peers})
+
+	if err := transport.Listen(*addr); err != nil {
+		return err
+	}
 
 	if err := network.Start(); err != nil {
 		return err
 	}
+	logger.Info("Started relayer on chain", "chain", chain.Name)
 
 	select {
 	case <-ctx.Done():

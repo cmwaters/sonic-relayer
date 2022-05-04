@@ -56,7 +56,7 @@ type Service struct {
 }
 
 func NewService(chainID string, height int64, handler Handler, provider Provider, currentValidators, nextValidators *tm.ValidatorSet) *Service {
-	return &Service{
+	service := &Service{
 		chainID:           chainID,
 		height:            height,
 		ibc:               handler,
@@ -69,6 +69,8 @@ func NewService(chainID string, height int64, handler Handler, provider Provider
 		partSets:          make(map[string]*tm.PartSet),
 		peerList:          clist.New(),
 	}
+	service.BaseReactor = *p2p.NewBaseReactor("RelayerMempool", service)
+	return service
 }
 
 // BroadcastRoutine continually loops through to send peers
