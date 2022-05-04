@@ -26,6 +26,7 @@ type ChainConfig struct {
 	// This is used to query for information on other nodes
 	RPC            string `toml:"rpc"`
 	AppVersion     uint64 `toml:"app_version"`
+	RevisionNumber uint64 `toml:"revision_number"`
 	ClientID       string `toml:"client_id"`
 	ConnectionID   string `toml:"connection_id"`
 	ChannelID      string `toml:"channel_id"`

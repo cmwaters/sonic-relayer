@@ -27,22 +27,18 @@ func (c *RPCClient) ValidatorSet(ctx context.Context, height *int64) (*tm.Valida
 	const maxPages = 100
 
 	var (
-		perPage       = 100
-		vals          = []*tm.Validator{}
-		page          = 1
-		total         = -1
-		startingIndex = c.index
+		perPage = 100
+		vals    = []*tm.Validator{}
+		page    = 1
+		total   = -1
 	)
 
 OUTER_LOOP:
-	for {
+	for attempts := 0; attempts < len(c.endpoints); attempts++ {
 		if ctx.Err() != nil {
 			return nil, -1, ctx.Err()
 		}
 		c.index = (c.index + 1) % len(c.endpoints)
-		if c.index == startingIndex {
-			return nil, -1, fmt.Errorf("no endpoint was able to provide a valid validator set for height %d", height)
-		}
 		client, err := http.New(c.endpoints[c.index], "/websocket")
 		if err != nil {
 			log.Error().Err(err)
@@ -93,4 +89,5 @@ OUTER_LOOP:
 		return valSet, *height, nil
 
 	}
+	return nil, -1, fmt.Errorf("no endpoint was able to provide a valid validator set for height %d", height)
 }
