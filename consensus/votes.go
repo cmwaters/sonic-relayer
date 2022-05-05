@@ -28,14 +28,6 @@ func (s *Service) addVote(vote *tm.Vote) {
 		s.roundVoteSets[vote.Round] = voteSet
 	}
 
-	if !vote.BlockID.IsZero() {
-		if _, ok := s.partSets[vote.BlockID.Hash.String()]; !ok {
-			log.Info().Msg("no proposal received for vote, creating a new part set header from vote")
-			s.partSets[vote.BlockID.Hash.String()] = tm.NewPartSetFromHeader(vote.BlockID.PartSetHeader)
-			s.proposals[vote.Round] = vote.BlockID
-		}
-	}
-
 	// add the new vote to the vote set. This verifies the signature and tallys the voting power
 	added, err := voteSet.AddVote(vote)
 	if added {
@@ -46,8 +38,32 @@ func (s *Service) addVote(vote *tm.Vote) {
 		return
 	}
 
+	if !vote.BlockID.IsZero() {
+		if _, ok := s.partSets[vote.BlockID.Hash.String()]; !ok {
+			log.Info().Msg("no proposal received for vote, creating a new part set header from vote")
+			s.partSets[vote.BlockID.Hash.String()] = tm.NewPartSetFromHeader(vote.BlockID.PartSetHeader)
+			s.proposals[vote.Round] = vote.BlockID
+			if parts, ok := s.parts[vote.Round]; ok {
+				// add back the saved block parts
+				for _, part := range parts {
+					s.mtx.Unlock()
+					s.addBlockPart(vote.Height, vote.Round, part)
+					s.mtx.Lock()
+				}
+				return
+			}
+
+		}
+	}
+
 	// check to see if the vote caused us to reach majority
 	blockID, ok := voteSet.TwoThirdsMajority()
+	if !ok {
+		return
+	}
+
+	// check that we have received a full block as well
+	_, ok = s.proposedBlocks[blockID.Hash.String()]
 	if !ok {
 		return
 	}

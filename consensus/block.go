@@ -20,11 +20,18 @@ func (s *Service) addBlockPart(height int64, round int32, part *tm.Part) {
 	proposedBlockID, ok := s.proposals[round]
 	if !ok {
 		log.Debug().Msg("block part is for a proposal we haven't received yet")
+		parts, ok := s.parts[round]
+		if !ok {
+			s.parts[round] = []*tm.Part{part}
+		} else {
+			s.parts[round] = append(parts, part)
+		}
 		return
 	}
 	partSet, ok := s.partSets[proposedBlockID.Hash.String()]
 	if !ok {
 		log.Error().Msg("don't have part set for corresponding proposal")
+		return
 	}
 
 	s.mtx.Lock()

@@ -50,6 +50,7 @@ type Service struct {
 	round             int32
 	proposals         map[int32]tm.BlockID
 	partSets          map[string]*tm.PartSet
+	parts             map[int32][]*tm.Part
 	proposedBlocks    map[string]*tm.Block
 	roundVoteSets     map[int32]*tm.VoteSet
 	currentValidators *tm.ValidatorSet
@@ -72,6 +73,7 @@ func NewService(chainID string, height int64, handler Handler, provider Provider
 		proposals:         make(map[int32]tm.BlockID),
 		roundVoteSets:     make(map[int32]*tm.VoteSet),
 		partSets:          make(map[string]*tm.PartSet),
+		parts:             make(map[int32][]*tm.Part),
 		peerList:          NewPeerList(),
 	}
 	service.BaseReactor = *p2p.NewBaseReactor("RelayerConsensus", service)
@@ -102,6 +104,7 @@ LOOP:
 			return
 		case <-stateTicker.C:
 			stateTicker.Reset(stateBroadcastInterval)
+			continue
 			peer := s.peerList.Next()
 			if peer == nil {
 				continue
@@ -112,6 +115,7 @@ LOOP:
 			s.mtx.Unlock()
 		case <-voteTicker.C:
 			voteTicker.Reset(voteBroadcastInterval)
+			continue
 			if s.peerList.IsEmpty() {
 				log.Info().Msg("no peers available, sleeping...")
 				continue
@@ -236,16 +240,23 @@ func (s *Service) commit(blockID tm.BlockID, voteSet *tm.VoteSet) {
 		return
 	}
 
+	if voteSet.GetHeight() != s.height || block.Height != s.height {
+		log.Error().Msg("tried to commit a block with a different height to the states height")
+		return
+	}
+
 	// Once a block is committed we then use the hashes in the header to validate
 	// that the validator set we received from the provider is correct
-	if nextValsHash := s.nextValidators.Hash(); !bytes.Equal(nextValsHash, block.NextValidatorsHash) {
-		log.Info().Msg("received invalid validator set from proposer. Fetching a new one")
-		nextHeight := s.height + 1
-		var err error
-		s.nextValidators, _, err = s.provider.ValidatorSet(context.Background(), &nextHeight)
-		if err != nil {
-			log.Error().Err(err).Msg("retrieving validator set for the next height")
-			return
+	if s.nextValidators != nil {
+		if nextValsHash := s.nextValidators.Hash(); !bytes.Equal(nextValsHash, block.NextValidatorsHash) {
+			log.Error().Msg("received invalid validator set from proposer. Fetching a new one")
+			nextHeight := s.height + 1
+			var err error
+			s.nextValidators, _, err = s.provider.ValidatorSet(context.Background(), &nextHeight)
+			if err != nil {
+				log.Error().Err(err).Msg("retrieving validator set for the next height")
+				return
+			}
 		}
 	}
 
@@ -294,6 +305,11 @@ func (s *Service) advance() {
 	s.nextValidators = nil
 
 	log.Info().Int64("height", s.height).Msg("advancing to the next height")
+
+	peer := s.peerList.Next()
+	if peer != nil {
+		peer.Send(cs.StateChannel, s.stateMsg())
+	}
 }
 
 // NOTE: values copied across from the tendermint consensus reactor
