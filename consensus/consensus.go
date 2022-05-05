@@ -10,7 +10,7 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/rs/zerolog/log"
 	cs "github.com/tendermint/tendermint/consensus"
-	"github.com/tendermint/tendermint/libs/clist"
+	cstypes "github.com/tendermint/tendermint/consensus/types"
 	"github.com/tendermint/tendermint/p2p"
 	csproto "github.com/tendermint/tendermint/proto/tendermint/consensus"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -18,8 +18,9 @@ import (
 )
 
 const (
-	maxMsgSize        = 1048576
-	broadcastInterval = 100 * time.Millisecond
+	maxMsgSize             = 1048576
+	stateBroadcastInterval = 2000 * time.Millisecond
+	voteBroadcastInterval  = 2000 * time.Millisecond
 )
 
 //go:generate mockery --case underscore --name Provider|Handler
@@ -42,9 +43,11 @@ type Service struct {
 	chainID  string
 	ibc      Handler
 	provider Provider
+	closer   chan struct{}
 
 	mtx               sync.Mutex
 	height            int64
+	round             int32
 	proposals         map[int32]tm.BlockID
 	partSets          map[string]*tm.PartSet
 	proposedBlocks    map[string]*tm.Block
@@ -52,87 +55,111 @@ type Service struct {
 	currentValidators *tm.ValidatorSet
 	nextValidators    *tm.ValidatorSet
 
-	peerList *clist.CList
+	peerList *PeerList
 }
 
 func NewService(chainID string, height int64, handler Handler, provider Provider, currentValidators, nextValidators *tm.ValidatorSet) *Service {
 	service := &Service{
 		chainID:           chainID,
 		height:            height,
+		round:             0,
 		ibc:               handler,
 		provider:          provider,
+		closer:            make(chan struct{}),
 		currentValidators: currentValidators,
 		nextValidators:    nextValidators,
 		proposedBlocks:    make(map[string]*tm.Block),
 		proposals:         make(map[int32]tm.BlockID),
 		roundVoteSets:     make(map[int32]*tm.VoteSet),
 		partSets:          make(map[string]*tm.PartSet),
-		peerList:          clist.New(),
+		peerList:          NewPeerList(),
 	}
-	service.BaseReactor = *p2p.NewBaseReactor("RelayerMempool", service)
+	service.BaseReactor = *p2p.NewBaseReactor("RelayerConsensus", service)
 	return service
+}
+
+func (s *Service) OnStart() error {
+	go s.broadcastRoutine()
+	return nil
+}
+
+func (s *Service) OnStop() {
+	close(s.closer)
 }
 
 // BroadcastRoutine continually loops through to send peers
 // the nodes current voteSetBits for each round and block
 // that the node has. This basically informs connected peers
 // which votes are remaining that need to be sent
-func (s Service) BroadcastRoutine(ctx context.Context) {
-	ticker := time.NewTicker(broadcastInterval)
-	var next *clist.CElement
+func (s Service) broadcastRoutine() {
+	stateTicker := time.NewTimer(stateBroadcastInterval)
+	voteTicker := time.NewTimer(voteBroadcastInterval)
+LOOP:
 	for {
 		select {
-		case <-ctx.Done():
+		case <-s.closer:
+			log.Info().Msg("closing consensus broadcast routine")
 			return
-		case <-ticker.C:
-			s.mtx.Lock()
-			// check if there's any vote state to send
-			if len(s.roundVoteSets) == 0 {
-				s.mtx.Unlock()
+		case <-stateTicker.C:
+			stateTicker.Reset(stateBroadcastInterval)
+			peer := s.peerList.Next()
+			if peer == nil {
 				continue
 			}
-			// loop through all rounds and all received proposals constructing
-			// the voteset bits for each and gossiping them to individual peers
-			for round, roundVoteSet := range s.roundVoteSets {
-				for _, blockID := range s.proposals {
-					// next is nil at either the start or when the list has been
-					// exhausted in which case we get from the front
-					if next == nil {
-						next := s.peerList.Front()
-						if next == nil {
+			log.Info().Msg("sending state update msg")
+			s.mtx.Lock()
+			peer.Send(cs.StateChannel, s.stateMsg())
+			s.mtx.Unlock()
+		case <-voteTicker.C:
+			voteTicker.Reset(voteBroadcastInterval)
+			if s.peerList.IsEmpty() {
+				log.Info().Msg("no peers available, sleeping...")
+				continue
+			}
+
+			for peer := s.peerList.Next(); peer != nil; peer = s.peerList.Next() {
+				s.mtx.Lock()
+				// check if there's any vote state to send
+				if len(s.roundVoteSets) == 0 {
+					s.mtx.Unlock()
+					continue LOOP
+				}
+				// loop through all rounds and all received proposals constructing
+				// the voteset bits for each and gossiping them to individual peers
+				for round, roundVoteSet := range s.roundVoteSets {
+					for _, blockID := range s.proposals {
+						bitArray := roundVoteSet.BitArrayByBlockID(blockID)
+						if bitArray == nil {
+							// no bit array for this block ID
 							s.mtx.Unlock()
-							// we have no peers so sleep
 							continue
 						}
-					}
-					bitArray := roundVoteSet.BitArrayByBlockID(blockID)
-					if bitArray == nil {
-						// no bit array for this block ID
-						s.mtx.Unlock()
-						continue
-					}
 
-					peer := next.Value.(p2p.Peer)
-					msg := &csproto.VoteSetBits{
-						Height:  s.height,
-						Round:   round,
-						Type:    tmproto.PrecommitType,
-						BlockID: blockID.ToProto(),
-						Votes:   *bitArray.ToProto(),
+						msg := &csproto.VoteSetBits{
+							Height:  s.height,
+							Round:   round,
+							Type:    tmproto.PrecommitType,
+							BlockID: blockID.ToProto(),
+							Votes:   *bitArray.ToProto(),
+						}
+						bz, err := msg.Marshal()
+						if err != nil {
+							log.Error().Err(err)
+							s.mtx.Unlock()
+							continue LOOP
+						}
+						log.Info().Msg("Sending vote set bits message")
+						// non-blocking. We don't check to see if the peers
+						// queue is full
+						peer.Send(cs.VoteSetBitsChannel, bz)
 					}
-					bz, err := msg.Marshal()
-					if err != nil {
-						log.Error().Err(err)
-						s.mtx.Unlock()
-						continue
-					}
-					// non-blocking. We don't check to see if the peers
-					// queue is full
-					_ = peer.TrySend(cs.VoteSetBitsChannel, bz)
-					next = next.Next()
 				}
+				// we've broadcasted all our vote set bits for a height
+				// return the lock and wait for the next interval
+				s.mtx.Unlock()
+				continue LOOP
 			}
-			s.mtx.Unlock()
+
 		}
 	}
 }
@@ -143,6 +170,7 @@ func (s Service) BroadcastRoutine(ctx context.Context) {
 // will lead to a commited block which is passed down to the handler
 // before moving state to the next height.
 func (s *Service) Receive(chID byte, src p2p.Peer, msgBytes []byte) {
+	log.Info().Msg("Received consensus message")
 	pb := &csproto.Message{}
 	if err := proto.Unmarshal(msgBytes, pb); err != nil {
 		log.Error().Err(err).Msg("unmarshalling consensus message")
@@ -164,8 +192,10 @@ func (s *Service) Receive(chID byte, src p2p.Peer, msgBytes []byte) {
 	case cs.DataChannel:
 		switch msg := msg.(type) {
 		case *cs.BlockPartMessage:
+			log.Info().Msg("Received block part message")
 			s.addBlockPart(msg.Height, msg.Round, msg.Part)
 		case *cs.ProposalMessage:
+			log.Info().Msg("Received proposal message")
 			s.handleProposal(msg.Proposal)
 		case *cs.ProposalPOLMessage:
 			return
@@ -178,11 +208,18 @@ func (s *Service) Receive(chID byte, src p2p.Peer, msgBytes []byte) {
 		if !ok {
 			return
 		}
+		log.Info().Msg("Received vote")
 
 		s.addVote(msg.Vote)
 
 	case cs.VoteSetBitsChannel:
-		// ignore inbound vote set bits
+		log.Info().Msg("Received vote set bit message")
+
+	case cs.StateChannel:
+		log.Info().Msg("Received consensus state update")
+		// ignore state updates
+		// TODO: In the future we may want to track maj23
+		// to better signal what round we are at
 		return
 	default:
 		log.Error().Str("msg type", fmt.Sprintf("%T", msg)).Int("chID", int(chID)).Msg("unknown msg from unsolicited channel")
@@ -207,7 +244,7 @@ func (s *Service) commit(blockID tm.BlockID, voteSet *tm.VoteSet) {
 		var err error
 		s.nextValidators, _, err = s.provider.ValidatorSet(context.Background(), &nextHeight)
 		if err != nil {
-			log.Error().Err(err)
+			log.Error().Err(err).Msg("retrieving validator set for the next height")
 			return
 		}
 	}
@@ -242,7 +279,7 @@ func (s *Service) advance() {
 		var err error
 		s.currentValidators, _, err = s.provider.ValidatorSet(context.Background(), &s.height)
 		if err != nil {
-			log.Error().Err(err)
+			log.Error().Err(err).Msg("retrieving next valiator set")
 		}
 	}
 
@@ -255,10 +292,19 @@ func (s *Service) advance() {
 	// reset the next validator set. We will retrieve it when we start to see the first proposal
 	// We can't do this immediately as it's likely nodes haven't persisted the new validator set
 	s.nextValidators = nil
+
+	log.Info().Int64("height", s.height).Msg("advancing to the next height")
 }
 
+// NOTE: values copied across from the tendermint consensus reactor
 func (s *Service) GetChannels() []*p2p.ChannelDescriptor {
 	return []*p2p.ChannelDescriptor{
+		{
+			ID:                  cs.StateChannel,
+			Priority:            6,
+			SendQueueCapacity:   100,
+			RecvMessageCapacity: maxMsgSize,
+		},
 		{
 			ID:                  cs.DataChannel,
 			Priority:            10,
@@ -284,15 +330,36 @@ func (s *Service) GetChannels() []*p2p.ChannelDescriptor {
 }
 
 func (s *Service) AddPeer(peer p2p.Peer) {
-	s.peerList.PushBack(peer)
+	log.Info().Msg("added new peer")
+	s.peerList.Add(peer)
+
+	// send out a round step message
+	log.Info().Int("channel", int(cs.StateChannel)).Msg("Sending round step message")
+	peer.Send(cs.StateChannel, s.stateMsg())
+}
+
+// Contract: Need to have a lock around state
+func (s Service) stateMsg() []byte {
+	roundStep := &cs.NewRoundStepMessage{
+		Height: s.height,
+		Round:  s.round,
+		Step:   cstypes.RoundStepNewHeight,
+		// TODO: track start time. I'm not sure if this is necessary
+		SecondsSinceStartTime: time.Now().Unix(),
+		// TODO: We should probably get the information for this
+		LastCommitRound: 0,
+	}
+	msg, err := cs.MsgToProto(roundStep)
+	if err != nil {
+		panic(err)
+	}
+	bz, err := msg.Marshal()
+	if err != nil {
+		panic(err)
+	}
+	return bz
 }
 
 func (s *Service) RemovePeer(peer p2p.Peer, reason interface{}) {
-	for e := s.peerList.Front(); e != nil; e = e.Next() {
-		p := e.Value.(p2p.Peer)
-		if p.ID() == peer.ID() {
-			s.peerList.Remove(e)
-			return
-		}
-	}
+	s.peerList.Remove(peer)
 }

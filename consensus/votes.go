@@ -28,6 +28,14 @@ func (s *Service) addVote(vote *tm.Vote) {
 		s.roundVoteSets[vote.Round] = voteSet
 	}
 
+	if !vote.BlockID.IsZero() {
+		if _, ok := s.partSets[vote.BlockID.Hash.String()]; !ok {
+			log.Info().Msg("no proposal received for vote, creating a new part set header from vote")
+			s.partSets[vote.BlockID.Hash.String()] = tm.NewPartSetFromHeader(vote.BlockID.PartSetHeader)
+			s.proposals[vote.Round] = vote.BlockID
+		}
+	}
+
 	// add the new vote to the vote set. This verifies the signature and tallys the voting power
 	added, err := voteSet.AddVote(vote)
 	if added {
@@ -43,6 +51,10 @@ func (s *Service) addVote(vote *tm.Vote) {
 	if !ok {
 		return
 	}
+
+	// TODO: we should also track polka's and prune prior rounds accrodingly so we don't
+	// have a state explosion in the event that consensus has too many rounds
+
 	// we have finalized a block!
 	s.commit(blockID, voteSet)
 }

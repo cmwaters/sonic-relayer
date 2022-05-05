@@ -49,6 +49,7 @@ func Relay(ctx context.Context, cfg *Config) error {
 	if err != nil {
 		return err
 	}
+	heightA--
 	currValSetA, heightA, err := providerA.ValidatorSet(ctx, &heightA)
 	if err != nil {
 		return err
@@ -57,6 +58,7 @@ func Relay(ctx context.Context, cfg *Config) error {
 	if err != nil {
 		return err
 	}
+	heightB--
 	currValSetB, heightB, err := providerB.ValidatorSet(ctx, &heightB)
 	if err != nil {
 		return err

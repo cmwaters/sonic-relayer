@@ -3,6 +3,7 @@ package relayer
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -50,13 +51,18 @@ func runNetwork(
 		),
 		DefaultNodeID: nodeKey.ID(),
 		Network:       chain.ID,
+		ListenAddr:    chain.ListenAddress,
 		Version:       version.TMCoreSemVer,
 		Channels: []byte{
-			cs.DataChannel, cs.VoteChannel, cs.VoteSetBitsChannel,
+			cs.StateChannel, cs.DataChannel, cs.VoteChannel, cs.VoteSetBitsChannel,
 			mpl.MempoolChannel,
 		},
 		Moniker: cfg.Moniker,
 	}
+	if err = nodeInfo.Validate(); err != nil {
+		return err
+	}
+
 	transport := p2p.NewMultiplexTransport(nodeInfo, *nodeKey, conn.DefaultMConnConfig())
 	p2p.MultiplexTransportMaxIncomingConnections(20)(transport)
 	network := p2p.NewSwitch(&config.P2PConfig{
@@ -77,12 +83,12 @@ func runNetwork(
 	if err != nil {
 		return err
 	}
+	logger := log.NewTMLogger(log.NewSyncWriter(os.Stdout))
 	if err := addrBook.AddAddress(netAddress, netAddress); err != nil {
-		return err
+		logger.Error("adding address", "err", err)
 	}
 	network.SetAddrBook(addrBook)
 
-	logger := log.NewTMLogger(log.NewSyncWriter(os.Stdout))
 	consensus.SetLogger(logger)
 	addrBook.SetLogger(logger)
 	mempool.SetLogger(logger)
@@ -100,6 +106,11 @@ func runNetwork(
 		return err
 	}
 	logger.Info("Started relayer on chain", "chain", chain.Name)
+
+	err = network.DialPeersAsync([]string{chain.Peers})
+	if err != nil {
+		return fmt.Errorf("could not dial peers: %w", err)
+	}
 
 	select {
 	case <-ctx.Done():
