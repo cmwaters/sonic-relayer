@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 
+	ibcclient "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
+
 	"github.com/plural-labs/sonic-relayer/consensus"
 	"github.com/plural-labs/sonic-relayer/ibc"
 	"github.com/plural-labs/sonic-relayer/provider"
@@ -42,17 +44,12 @@ func Relay(ctx context.Context, cfg *Config) error {
 		return err
 	}
 
-	endpointA := &ibc.State{}
-	endpointB := &ibc.State{}
-
-	ibcHandlerA := ibc.NewHandler(mempoolB, accountant, endpointA, endpointB)
-	ibcHandlerB := ibc.NewHandler(mempoolA, accountant, endpointA, endpointB)
-
 	// get the latest two validator sets and heights
 	nextValSetA, heightA, err := providerA.ValidatorSet(ctx, nil)
 	if err != nil {
 		return err
 	}
+	heightA--
 	currValSetA, heightA, err := providerA.ValidatorSet(ctx, &heightA)
 	if err != nil {
 		return err
@@ -61,10 +58,63 @@ func Relay(ctx context.Context, cfg *Config) error {
 	if err != nil {
 		return err
 	}
+	heightB--
 	currValSetB, heightB, err := providerB.ValidatorSet(ctx, &heightB)
 	if err != nil {
 		return err
 	}
+
+	currValSetProtoA, err := currValSetA.ToProto()
+	if err != nil {
+		return err
+	}
+	currValSetProtoB, err := currValSetB.ToProto()
+	if err != nil {
+		return err
+	}
+	ibcStateA := &ibc.State{
+		ChainID: cfg.ChainA.ID,
+		Client: ibc.ClientState{
+			ChainID: cfg.ChainB.ID,
+			LastTrustedHeight: ibcclient.Height{
+				RevisionNumber: cfg.ChainB.RevisionNumber,
+				RevisionHeight: uint64(heightB),
+			},
+			LastTrustedValidators: currValSetProtoB,
+		},
+		Endpoint: ibc.Endpoint{
+			ClientID:     cfg.ChainA.ClientID,
+			ConnectionID: cfg.ChainA.ConnectionID,
+			Channel: ibc.Channel{
+				ChannelID: cfg.ChainA.ChannelID,
+				PortID:    cfg.ChainA.PortID,
+				Version:   cfg.ChainA.ChannelVersion,
+			},
+		},
+	}
+	ibcStateB := &ibc.State{
+		ChainID: cfg.ChainB.ID,
+		Client: ibc.ClientState{
+			ChainID: cfg.ChainA.ID,
+			LastTrustedHeight: ibcclient.Height{
+				RevisionNumber: cfg.ChainA.RevisionNumber,
+				RevisionHeight: uint64(heightA),
+			},
+			LastTrustedValidators: currValSetProtoA,
+		},
+		Endpoint: ibc.Endpoint{
+			ClientID:     cfg.ChainB.ClientID,
+			ConnectionID: cfg.ChainB.ConnectionID,
+			Channel: ibc.Channel{
+				ChannelID: cfg.ChainB.ChannelID,
+				PortID:    cfg.ChainB.PortID,
+				Version:   cfg.ChainB.ChannelVersion,
+			},
+		},
+	}
+
+	ibcHandlerA := ibc.NewHandler(mempoolB, accountant, ibcStateA, ibcStateB)
+	ibcHandlerB := ibc.NewHandler(mempoolA, accountant, ibcStateB, ibcStateA)
 
 	consensusA := consensus.NewService(cfg.ChainA.ID, heightA, ibcHandlerA, providerA, currValSetA, nextValSetA)
 	consensusB := consensus.NewService(cfg.ChainB.ID, heightB, ibcHandlerB, providerB, currValSetB, nextValSetB)

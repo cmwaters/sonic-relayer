@@ -38,11 +38,39 @@ func (s *Service) addVote(vote *tm.Vote) {
 		return
 	}
 
+	if !vote.BlockID.IsZero() {
+		if _, ok := s.partSets[vote.BlockID.Hash.String()]; !ok {
+			log.Info().Msg("no proposal received for vote, creating a new part set header from vote")
+			s.partSets[vote.BlockID.Hash.String()] = tm.NewPartSetFromHeader(vote.BlockID.PartSetHeader)
+			s.proposals[vote.Round] = vote.BlockID
+			if parts, ok := s.parts[vote.Round]; ok {
+				// add back the saved block parts
+				for _, part := range parts {
+					s.mtx.Unlock()
+					s.addBlockPart(vote.Height, vote.Round, part)
+					s.mtx.Lock()
+				}
+				return
+			}
+
+		}
+	}
+
 	// check to see if the vote caused us to reach majority
 	blockID, ok := voteSet.TwoThirdsMajority()
 	if !ok {
 		return
 	}
+
+	// check that we have received a full block as well
+	_, ok = s.proposedBlocks[blockID.Hash.String()]
+	if !ok {
+		return
+	}
+
+	// TODO: we should also track polka's and prune prior rounds accrodingly so we don't
+	// have a state explosion in the event that consensus has too many rounds
+
 	// we have finalized a block!
 	s.commit(blockID, voteSet)
 }

@@ -3,8 +3,10 @@ package relayer
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
+	"github.com/rs/zerolog/log"
 )
 
 const keyName = "sonic"
@@ -15,14 +17,16 @@ func NewSigner(cfg *Config) (keyring.Keyring, error) {
 		return nil, err
 	}
 
-	info, err := k.Key(keyName)
-	if err != nil {
-		return nil, err
-	}
-	if info != nil {
+	_, err = k.Key(keyName)
+	if err == nil {
+		log.Info().Msg("existing key found")
 		// account already exists
 		return k, nil
 	}
+	if err != nil && !strings.Contains(err.Error(), "key not found") {
+		return nil, err
+	}
+
 	// we have to make an account. Generate one using the provided mnemonic
 	keyringAlgos, _ := k.SupportedAlgorithms()
 	algo, err := keyring.NewSigningAlgoFromString("secp256k1", keyringAlgos)
